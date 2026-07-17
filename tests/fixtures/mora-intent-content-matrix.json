@@ -1,0 +1,27 @@
+{
+  "id": "intent_content_matrix_001",
+  "sourceUtteranceId": "utt_content_matrix_001",
+  "rawText": "帮我做一组 AI 工具 CPS 矩阵内容，先给我审",
+  "speechAct": "command",
+  "intentDomain": "social_distribution",
+  "entities": [
+    {
+      "topic": "AI tools CPS"
+    }
+  ],
+  "references": [],
+  "temporalAnchors": [],
+  "uncertainty": 0.1,
+  "worldContextRefs": ["world_content_strategy"],
+  "selfCore": {
+    "schemaVersion": "1.0",
+    "identityScore": 0.99,
+    "identityStatus": "stable",
+    "crisisMode": false,
+    "reasons": []
+  },
+  "openAttributes": {
+    "platforms": ["douyin", "xiaohongshu", "wechat_mp"],
+    "approvalRequired": true
+  }
+}

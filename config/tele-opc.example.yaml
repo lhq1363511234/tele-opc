@@ -1,0 +1,197 @@
+# Tele-OPC OS V2 example configuration
+# Copy to config/tele-opc.yaml and customize.
+# Do not commit real config if it contains business data or secrets.
+
+app:
+  name: Tele-OPC OS
+  timezone: Asia/Shanghai
+  language: zh-CN
+
+telegram:
+  commands:
+    - start
+    - today
+    - tasks
+    - briefing
+    - crm
+    - finance
+    - mail
+    - calendar
+    - browser
+    - ops
+    - healthcheck
+    - eval
+    - retry
+    - audit_export
+    - backup
+    - memory
+    - review
+    - reviews
+    - playbooks
+    - settings
+  owner_ids:
+    - 123456789
+
+approval:
+  require_for:
+    - bulk_non_email_outreach
+    - create_external_calendar_event
+    - update_external_calendar_event
+    - cancel_external_calendar_event
+    - payment
+    - refund
+    - cancel_subscription
+    - submit_browser_form
+    - publish_content
+    - production_deploy
+    - production_data_write
+    - delete_record
+    - share_file_externally
+
+memory:
+  default_language: zh-CN
+  layers:
+    - strategic
+    - operational
+    - relationships
+    - financial
+    - preferences
+
+agents:
+  chief_of_staff:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_global_memory
+      - create_task
+      - inspect_task
+      - request_approval
+      - notify_operator
+
+  crm:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_crm
+      - write_crm
+      - draft_customer_message
+    approval_required:
+      - send_customer_message
+      - delete_customer_data
+
+  finance:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_finance
+      - write_finance_notes
+      - forecast_cashflow
+    approval_required:
+      - payment
+      - refund
+      - send_invoice
+      - cancel_subscription
+      - delete_finance_record
+
+  email:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_email
+      - summarize_email
+      - draft_email
+      - send_campaign_email
+    approval_required:
+      - delete_email
+
+  calendar:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_calendar
+      - find_availability
+      - draft_calendar_event
+    approval_required:
+      - create_external_calendar_event
+      - update_external_calendar_event
+      - cancel_external_calendar_event
+
+  browser:
+    enabled: true
+    model: gpt-4.1-mini
+    headless: true
+    allowed_domains:
+      - stripe.com
+      - github.com
+      - google.com
+    approval_required:
+      - submit_form
+      - publish_content
+      - delete_remote_data
+      - change_billing
+      - purchase
+
+  research:
+    enabled: true
+    model: gpt-4.1-mini
+    permissions:
+      - web_research
+      - write_report
+
+  content:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - write_draft
+      - create_campaign_plan
+    approval_required:
+      - publish_content
+      - send_campaign
+
+  ops:
+    enabled: true
+    model: gpt-4.1
+    permissions:
+      - read_repo
+      - write_internal_script
+      - run_sandbox_command
+    approval_required:
+      - production_deploy
+      - production_data_write
+      - destructive_file_operation
+
+governance:
+  evaluations:
+    enabled: true
+    suite: governance_v0
+    cases:
+      - evl_default_external_approval
+      - evl_default_browser_submit
+      - evl_default_retry_guard
+      - evl_default_low_risk_internal
+
+briefings:
+  daily:
+    enabled: true
+    cron: "0 8 * * *"
+    include:
+      - priorities
+      - approvals
+      - blocked_tasks
+      - crm_followups
+      - finance_alerts
+      - calendar
+      - email
+      - browser_runs
+
+  weekly:
+    enabled: true
+    cron: "0 18 * * 5"
+    include:
+      - completed_tasks
+      - missed_tasks
+      - pipeline_movement
+      - cashflow
+      - content_output
+      - system_failures
+      - playbook_suggestions

@@ -1,0 +1,207 @@
+﻿app:
+  description: 北斗智影短剧 CPS 剪辑策划。输入第 5 步媒体分析、字幕、截图摘要和剪辑指南，输出可给 n8n/CapCut Mate 执行的结构化 edit_plan JSON。
+  icon: 🎬
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: OPC 短剧CPS剪辑策划
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.3.1
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: llm
+      id: start-to-llm
+      source: start_node
+      sourceHandle: source
+      target: llm_planner
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: end
+      id: llm-to-end
+      source: llm_planner
+      sourceHandle: source
+      target: end_node
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: Start
+        type: start
+        variables:
+        - label: product_json
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: product_json
+        - label: episodes_json
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: episodes_json
+        - label: guide_text
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: guide_text
+        - label: required_json_shape
+          max_length: null
+          options: []
+          required: true
+          type: paragraph
+          variable: required_json_shape
+      height: 192
+      id: start_node
+      position:
+        x: 30
+        y: 227
+      positionAbsolute:
+        x: 30
+        y: 227
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: ''
+        memory:
+          enabled: false
+          window:
+            enabled: false
+            size: 50
+        model:
+          mode: chat
+          name: deepseek-v4-flash
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - role: system
+          text: |
+            Generate three complete full-series editing strategies: high_burn_conflict, suspense_reversal, and narration_guided. Each strategy must cut from the first useful opening through the final episode.
+            For each strategy, generate enough AI-selected story cuts to cover the drama through the final episode. Do not stop after one cut.
+            Use variantId names that show the strategy and order, such as high_burn_001, suspense_001, narration_001.
+            For every episode, AI must judge whether it is a normal story episode, montage, recap, trailer, or low-signal material. Do not assume episode 1 is montage.
+            For each normal story episode, the cut that starts that episode should start exactly at the strongest AI-selected hook. If material before that hook should be preserved and a previous cut exists, place it at the ending of the previous cut as next_episode_pre_hook_setup.
+            The three strategies may reuse source material, but each strategy must have its own hooks, timeline decisions, captions, voiceover or guide text, publishCopy, riskNotes, and secondary-edit packaging focus.
+            Each executable cut should target 90-180 seconds.
+            Video subtitles must be English only. Use transcriptPath SRT subtitles in the CapCut execution layer; do not require Chinese subtitles in the draft.
+            Copyright/secondary-edit rule: keep story continuity, but apply reframed crop/zoom, color pass, re-encoding, subtitle cleanup, and explicit copyright risk notes for human review.
+            你是 Tele-OPC 一人公司系统里的短剧 CPS 剪辑策划工作流。只输出 JSON，不输出 Markdown。
+            严禁输出 <think>、思考过程、解释文字、Markdown 代码块、多个 JSON 对象或尾部诊断文本。
+            第一个字符必须是 {，最后一个字符必须是 }。
+            目标不是聊天，而是给 n8n 和 CapCut Mate 生成可执行剪辑计划。
+            必须生成多个版本，覆盖高燃混剪、黄金三段/热点前置、影视解说或爆点引流。
+            所有 timeline 片段必须引用真实 episode/start/end 秒数。发布前 ownerApprovalRequired 必须为 true。
+        - role: user
+          text: |
+            产品/任务：
+            {{#start_node.product_json#}}
+
+            剧集媒体分析：
+            {{#start_node.episodes_json#}}
+
+            剪辑指南：
+            {{#start_node.guide_text#}}
+
+            输出 JSON 结构：
+            {{#start_node.required_json_shape#}}
+
+            要求：
+            1. 必须输出三套完整全剧策略：高燃冲突版、悬念反转版、解说引导版；每套策略都要从头剪到尾，并各自生成足够多的 styleVariants/cuts。
+            2. 每个版本 90-180 秒，9:16，适合 CPS 矩阵分发。
+            3. 输出 hook、timeline、voiceover、captions、publishCopy、riskNotes、capcut。
+            4. 不要自动发布，不要输出解释文字。
+        retry_config:
+          enabled: false
+          exponential_backoff:
+            enabled: false
+            max_interval: 10000
+            multiplier: 2
+          max_retries: 1
+          retry_interval: 1000
+        selected: false
+        structured_output:
+          enabled: false
+        title: 短剧剪辑策划
+        type: llm
+        vision:
+          configs:
+            variable_selector: []
+          enabled: false
+      height: 90
+      id: llm_planner
+      position:
+        x: 334
+        y: 227
+      positionAbsolute:
+        x: 334
+        y: 227
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - llm_planner
+          - text
+          value_type: string
+          variable: edit_plan
+        selected: false
+        title: End
+        type: end
+      height: 90
+      id: end_node
+      position:
+        x: 638
+        y: 227
+      positionAbsolute:
+        x: 638
+        y: 227
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.7

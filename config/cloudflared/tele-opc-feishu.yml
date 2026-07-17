@@ -1,0 +1,7 @@
+tunnel: 4f898c5e-77f2-4bd2-91e5-596fc5e93f22
+credentials-file: C:\Users\Cir\.cloudflared\4f898c5e-77f2-4bd2-91e5-596fc5e93f22.json
+
+ingress:
+  - hostname: feishu.opctoai.xyz
+    service: http://127.0.0.1:3000
+  - service: http_status:404

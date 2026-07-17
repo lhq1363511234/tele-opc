@@ -1,0 +1,106 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
+import YAML from 'yaml';
+import { z } from 'zod';
+
+dotenv.config();
+
+const envBool = (defaultValue: boolean) => z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n', 'off', ''].includes(normalized)) return false;
+  return value;
+}, z.boolean().default(defaultValue));
+
+const envSchema = z.object({
+  APP_ENV: z.string().default('development'),
+  APP_NAME: z.string().default('Tele-OPC OS'),
+  HOST: z.string().default('0.0.0.0'),
+  PORT: z.coerce.number().default(3000),
+  PUBLIC_BASE_URL: z.string().default('http://localhost:3000'),
+  APP_ENCRYPTION_KEY: z.string().default('change-me-use-a-strong-random-key'),
+  LOG_LEVEL: z.string().default('info'),
+  DATABASE_URL: z.string().default('postgresql://tele_opc:tele_opc_password@localhost:5432/tele_opc'),
+  REDIS_URL: z.string().default('redis://localhost:6379/0'),
+  TELEGRAM_BOT_TOKEN: z.string().default('change-me'),
+  TELEGRAM_OWNER_IDS: z.string().default(''),
+  TELEGRAM_WEBHOOK_SECRET: z.string().default(''),
+  AI_PROVIDER: z.string().default('openai'),
+  AI_AGENT_ENABLED: envBool(true),
+  OPENAI_BASE_URL: z.string().default('https://api.openai.com/v1'),
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_MODEL: z.string().default('gpt-4.1'),
+  OPENAI_TIMEOUT_MS: z.coerce.number().default(60000),
+  CODEX_BRIDGE_ENABLED: envBool(false),
+  CODEX_BRIDGE_MODE: z.enum(['inbox', 'exec']).default('inbox'),
+  CODEX_BRIDGE_CLI_PATH: z.string().default('codex'),
+  CODEX_BRIDGE_SESSION: z.string().default('last'),
+  CODEX_BRIDGE_TIMEOUT_MS: z.coerce.number().default(180000),
+  CODEX_BRIDGE_DANGEROUS_BYPASS: envBool(false),
+  CODEX_BRIDGE_INBOX_PATH: z.string().default('runtime/codex-inbox.jsonl'),
+  CODEX_BRIDGE_MAX_PROMPT_CHARS: z.coerce.number().default(8000),
+  DEFAULT_TIMEZONE: z.string().default('Asia/Shanghai')
+});
+
+export type AppConfig = ReturnType<typeof loadConfig>;
+
+export function loadConfig() {
+  const env = envSchema.parse(process.env);
+  const configPath = path.resolve(process.cwd(), 'config', 'tele-opc.yaml');
+  const exampleConfigPath = path.resolve(process.cwd(), 'config', 'tele-opc.example.yaml');
+  const yamlPath = fs.existsSync(configPath) ? configPath : exampleConfigPath;
+  const yamlConfig = fs.existsSync(yamlPath)
+    ? (YAML.parse(fs.readFileSync(yamlPath, 'utf8')) as Record<string, unknown>)
+    : {};
+
+  const telegramOwnerIds = env.TELEGRAM_OWNER_IDS.split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+
+  return {
+    app: {
+      env: env.APP_ENV,
+      name: env.APP_NAME,
+      host: env.HOST,
+      port: env.PORT,
+      publicBaseUrl: env.PUBLIC_BASE_URL,
+      encryptionKey: env.APP_ENCRYPTION_KEY,
+      logLevel: env.LOG_LEVEL,
+      timezone: env.DEFAULT_TIMEZONE
+    },
+    database: {
+      url: env.DATABASE_URL
+    },
+    redis: {
+      url: env.REDIS_URL
+    },
+    telegram: {
+      botToken: env.TELEGRAM_BOT_TOKEN,
+      ownerIds: telegramOwnerIds,
+      webhookSecret: env.TELEGRAM_WEBHOOK_SECRET
+    },
+    ai: {
+      provider: env.AI_PROVIDER,
+      agentEnabled: env.AI_AGENT_ENABLED,
+      openaiBaseUrl: env.OPENAI_BASE_URL,
+      openaiApiKey: env.OPENAI_API_KEY,
+      openaiModel: env.OPENAI_MODEL,
+      openaiTimeoutMs: env.OPENAI_TIMEOUT_MS
+    },
+    codexBridge: {
+      enabled: env.CODEX_BRIDGE_ENABLED,
+      mode: env.CODEX_BRIDGE_MODE,
+      cliPath: env.CODEX_BRIDGE_CLI_PATH,
+      session: env.CODEX_BRIDGE_SESSION,
+      timeoutMs: env.CODEX_BRIDGE_TIMEOUT_MS,
+      dangerousBypass: env.CODEX_BRIDGE_DANGEROUS_BYPASS,
+      inboxPath: env.CODEX_BRIDGE_INBOX_PATH,
+      maxPromptChars: env.CODEX_BRIDGE_MAX_PROMPT_CHARS
+    },
+    yaml: yamlConfig
+  };
+}

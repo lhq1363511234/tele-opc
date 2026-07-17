@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+coverage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Runtime data
+runtime/
+data/
+artifacts/
+logs/
+*.log
+
+# Browser sessions and screenshots
+browser-profile/
+playwright-report/
+test-results/
+
+# Local config
+config/tele-opc.yaml
+config/*.local.yaml
+
+# Database dumps (keep migrations/*.sql)
+*.dump
+*.sqlite
+*.sqlite3
+!migrations/
+!migrations/**/*.sql
+
+# Accidental local files
+=srt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]

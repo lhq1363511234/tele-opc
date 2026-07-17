@@ -1,0 +1,24 @@
+[
+  {
+    "taskId": "842501",
+    "appId": "moboreels",
+    "enName": "Bestie Ruined My Wedding? Fine, I Am Screwing Her Life!",
+    "chName": "Bestie Ruined My Wedding_EN",
+    "platform": "MoboReels",
+    "platformSideId": "5115",
+    "episodeCount": "10集 | 英文",
+    "language": "英文",
+    "commissionRate": "分佣比例：50%",
+    "onlineDate": "上线时间：2026-06-21",
+    "promoCopy": "A revenge wedding drama built around betrayal and payback.",
+    "coverImageUrl": "https://example.test/cover.png",
+    "promoLinks": {
+      "facebook": "https://eng.moboreels.com/VTMBi/842501",
+      "tiktok": "https://example.test/tiktok/842501"
+    },
+    "downloadedFiles": [
+      ["cover_image", "B:/materials/moboreels/842501/cover.png", "https://example.test/cover.png"],
+      ["episode_video", "B:/materials/moboreels/842501/ep4.mp4", "https://example.test/ep4.mp4"]
+    ]
+  }
+]

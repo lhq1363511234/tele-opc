@@ -1,0 +1,8 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$TELE_OPC_DOMAIN}, www.{$TELE_OPC_DOMAIN}, app.{$TELE_OPC_DOMAIN}, mini.{$TELE_OPC_DOMAIN}, api.{$TELE_OPC_DOMAIN}, tele-opc.{$TELE_OPC_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}
