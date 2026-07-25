@@ -25,6 +25,84 @@ export type MemoryType =
   | 'playbook'
   | 'pricing';
 
+
+export interface ASelfProfileRecord {
+  id: string;
+  display_name: string;
+  mission: string;
+  profile_markdown: string;
+  values_order: string[];
+  decision_principles: string[];
+  communication_style: Record<string, unknown>;
+  boundaries: string[];
+  status: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ASelfMemoryItemRecord {
+  id: string;
+  category: string;
+  title: string;
+  content: string;
+  why: string | null;
+  tags: string[];
+  source: string;
+  sensitivity: string;
+  confidence: number;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface ASelfDecisionLogRecord {
+  id: string;
+  decided_at: string;
+  question: string;
+  choice: string;
+  why: string;
+  result: string | null;
+  review: string | null;
+  future_rule: string | null;
+  impact: string;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ASelfPermissionRuleRecord {
+  id: string;
+  level: number;
+  action_type: string;
+  automation_mode: string;
+  requires_approval: boolean;
+  description: string;
+  examples: string[];
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ASelfOpcRunRecord {
+  id: string;
+  run_type: string;
+  title: string;
+  market_scan: string | null;
+  company_state: string | null;
+  recommendations: string | null;
+  metrics: Record<string, unknown>;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TaskRecord {
   id: string;
   title: string;
@@ -41,6 +119,53 @@ export interface TaskRecord {
   created_at: string;
   updated_at: string;
 }
+
+export interface BusinessAnalyticsFactRecord {
+  id: string;
+  occurred_at: string;
+  grain: string;
+  scope: string;
+  metric_code: string;
+  metric_name: string;
+  metric_value: number;
+  amount: number | null;
+  score: number | null;
+  channel: string | null;
+  agent: string | null;
+  stage: string | null;
+  segment: string | null;
+  customer: string | null;
+  status: string | null;
+  note: string | null;
+  source_object_type: string | null;
+  source_object_id: string | null;
+  is_demo: boolean;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export type BusinessAnalyticsFactParams = {
+  id: string;
+  occurred_at?: string;
+  grain: string;
+  scope: string;
+  metric_code: string;
+  metric_name: string;
+  metric_value: number;
+  amount?: number | null;
+  score?: number | null;
+  channel?: string | null;
+  agent?: string | null;
+  stage?: string | null;
+  segment?: string | null;
+  customer?: string | null;
+  status?: string | null;
+  note?: string | null;
+  source_object_type?: string | null;
+  source_object_id?: string | null;
+  is_demo?: boolean;
+  metadata?: Record<string, unknown>;
+};
 
 export interface TaskDependencyRecord {
   id: string;

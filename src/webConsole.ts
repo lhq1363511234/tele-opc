@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AgentRunner } from './ai/agentRunner.js';
@@ -16,6 +15,14 @@ import { TelegramClient } from './telegram/client.js';
 import type { TelegramChat, TelegramMessage, TelegramUser } from './telegram/types.js';
 import { buildTaskDetailCard } from './telegram/ux.js';
 import type { ArtifactRecord, TaskRecord, TaskStatus } from './types.js';
+import { createWebConsoleAuthPreHandler, resolveWebConsoleAuthMode } from './web/auth.js';
+import { getTelegramInitDataValidation } from './web/telegramInitData.js';
+import { CustomerEmailSender } from './email/campaignEmailSender.js';
+import { buildFeishuMirror } from './appos/feishu/ledger-mirror.js';
+import { LedgerSync } from './appos/feishu/ledger-sync.js';
+import { buildBusinessAnalytics } from './web/analytics.js';
+import { registerPaperclipWebRoutes } from './integrations/paperclip/web-routes.js';
+import { registerASelfWebRoutes } from './a-self/web-routes.js';
 
 const apiLimitSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30)
@@ -37,6 +44,13 @@ const miniAppSubmitSchema = z.object({
 
 const retrySchema = z.object({
   reason: z.string().trim().max(500).optional()
+});
+
+const feishuSyncSchema = z.object({
+  taskLimit: z.coerce.number().int().min(1).max(200).optional(),
+  approvalLimit: z.coerce.number().int().min(1).max(200).optional(),
+  leadLimit: z.coerce.number().int().min(1).max(200).optional(),
+  artifactLimit: z.coerce.number().int().min(1).max(200).optional()
 });
 
 function validateWebInput<TSchema extends z.ZodTypeAny>(
@@ -100,7 +114,11 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     agentRunner
   );
 
-  const allowWebConsoleAccess = async () => {};
+  const allowWebConsoleAccess = createWebConsoleAuthPreHandler(config);
+  const authMode = resolveWebConsoleAuthMode(config);
+  const customerEmailSender = CustomerEmailSender.fromEnv();
+  registerPaperclipWebRoutes(app, config, repos, allowWebConsoleAccess);
+  registerASelfWebRoutes(app, repos, allowWebConsoleAccess);
 
   app.get('/api/web/session', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,
@@ -108,6 +126,10 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
       name: config.app.name,
       env: config.app.env,
       timezone: config.app.timezone
+    },
+    auth: {
+      mode: authMode,
+      required: authMode === 'telegram'
     }
   }));
 
@@ -273,7 +295,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     async (request) => {
       const body = retrySchema.parse(request.body ?? {});
       const result = await submitWebCommand(brain, repos, config, `/retry ${request.params.id}${body.reason ? ` ${body.reason}` : ''}`);
-      return { ok: true, ...result };
+      return result;
     }
   );
 
@@ -294,6 +316,64 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     ok: true,
     dashboard: await repos.getMailDashboard()
   }));
+
+
+  app.get('/api/web/mail/smtp-status', { preHandler: allowWebConsoleAccess }, async () => ({
+    ok: true,
+    smtp: customerEmailSender.getStatus(),
+    capabilities: {
+      campaignSend: true,
+      singleCustomerSend: true,
+      command: '/send_campaign <campaign_id>',
+      api: 'POST /api/web/mail/send'
+    }
+  }));
+
+  app.post<{ Body: unknown }>('/api/web/mail/send', { preHandler: allowWebConsoleAccess }, async (request, reply) => {
+    const parsed = z.object({
+      to: z.union([z.string(), z.array(z.string())]),
+      cc: z.union([z.string(), z.array(z.string())]).optional(),
+      subject: z.string().trim().min(1, 'subject_required'),
+      text: z.string().default(''),
+      html: z.string().nullish().transform(v => v ?? undefined),
+      from: z.string().optional()
+    }).safeParse(request.body ?? {});
+    if (!parsed.success) {
+      reply.code(400);
+      return {
+        ok: false,
+        error: 'validation_failed',
+        reason: 'invalid_payload',
+        details: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message
+        }))
+      };
+    }
+    const body = parsed.data;
+
+    const result = await customerEmailSender.sendCustomerEmail(body);
+    if (!result.ok) {
+      reply.code(result.reason === 'smtp_not_configured' ? 503 : 400);
+      return result;
+    }
+
+    await repos.audit({
+      actorType: 'web_console',
+      action: 'customer_email_sent',
+      entityType: 'mail',
+      entityId: result.messageId,
+      metadata: {
+        to: result.to,
+        cc: result.cc,
+        subject: result.subject,
+        from: result.from
+      }
+    });
+
+    return result;
+  });
+
 
   app.get('/api/web/finance', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,
@@ -339,11 +419,177 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
         inboxPath: config.codexBridge.inboxPath
       },
       webConsole: {
-        auth: 'disabled'
+        auth: authMode,
+        required: authMode === 'telegram',
+        devTokenConfigured: Boolean(config.webConsole.devToken)
       },
       publicBaseUrl: config.app.publicBaseUrl
     }
   }));
+
+  app.get('/api/web/analytics', { preHandler: allowWebConsoleAccess }, async () => buildBusinessAnalytics(config));
+
+  app.get('/api/web/ops-insights', { preHandler: allowWebConsoleAccess }, async () => {
+    const [tasks, pendingApprovals, leads, agentRuns, crm, mail, finance] = await Promise.all([
+      repos.listTasks(200),
+      repos.listPendingApprovals(50),
+      repos.listProspectingLeads(100),
+      repos.listAgentRuns(50),
+      repos.getCrmDashboard(),
+      repos.getMailDashboard(),
+      repos.getFinanceDashboard()
+    ]);
+
+    const countBy = <T,>(items: T[], keyFn: (item: T) => string) => {
+      const out: Record<string, number> = {};
+      for (const item of items) {
+        const key = keyFn(item) || 'unknown';
+        out[key] = (out[key] ?? 0) + 1;
+      }
+      return out;
+    };
+
+    const taskStatus = countBy(tasks, (t) => t.status);
+    const taskPriority = countBy(tasks, (t) => t.priority || 'normal');
+    const taskOwner = countBy(tasks, (t) => t.owner_agent || 'unknown');
+    const leadStatus = countBy(leads, (t) => t.status || 'unknown');
+    const leadSource = countBy(leads, (t) => t.source || 'unknown');
+
+    const dayKey = (iso: string) => {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return 'unknown';
+      return d.toISOString().slice(0, 10);
+    };
+    const taskTrendMap = countBy(tasks, (t) => dayKey(t.created_at));
+    const leadTrendMap = countBy(leads, (t) => dayKey(t.created_at));
+    const days = Array.from(new Set([...Object.keys(taskTrendMap), ...Object.keys(leadTrendMap)]))
+      .filter((d) => d !== 'unknown')
+      .sort()
+      .slice(-14);
+    const trend = days.map((day) => ({
+      day,
+      tasks: taskTrendMap[day] ?? 0,
+      leads: leadTrendMap[day] ?? 0
+    }));
+
+    const scoreOf = (lead: typeof leads[number]) => {
+      const score = lead.score as Record<string, unknown> | null;
+      if (!score) return null;
+      if (typeof score.total === 'number') return score.total;
+      if (typeof score.score === 'number') return score.score;
+      return null;
+    };
+
+    const scored = leads
+      .map((lead) => ({ lead, score: scoreOf(lead) }))
+      .filter((x): x is { lead: typeof leads[number]; score: number } => typeof x.score === 'number')
+      .sort((a, b) => b.score - a.score);
+
+    const blocked = tasks.filter((t) => t.status === 'blocked' || t.status === 'failed').slice(0, 8);
+    const running = tasks.filter((t) => t.status === 'running' || t.status === 'queued').slice(0, 8);
+    const hotLeads = (crm.hotLeads ?? []).slice(0, 6);
+    const overdue = (crm.overdueFollowUps ?? []).slice(0, 6);
+    const urgentMail = ((mail as any).urgent ?? []).slice(0, 5);
+
+    const headlineParts: string[] = [];
+    if ((pendingApprovals.length ?? 0) > 0) headlineParts.push(`${pendingApprovals.length} 个审批待处理`);
+    if ((taskStatus.blocked ?? 0) > 0) headlineParts.push(`${taskStatus.blocked} 个任务阻塞`);
+    if ((crm.overdueFollowUps ?? []).length > 0) headlineParts.push(`${(crm.overdueFollowUps ?? []).length} 个跟进逾期`);
+    if ((crm.hotLeads ?? []).length > 0) headlineParts.push(`${(crm.hotLeads ?? []).length} 条热线索`);
+    if (headlineParts.length === 0) headlineParts.push('经营面平稳，可推进新机会');
+
+    const kpis = [
+      { key: 'tasks', label: '任务总量', value: tasks.length, hint: `运行 ${taskStatus.running ?? 0} / 阻塞 ${taskStatus.blocked ?? 0}` , tone: (taskStatus.blocked ?? 0) > 0 ? 'danger' : 'ok' },
+      { key: 'approvals', label: '待审批', value: pendingApprovals.length, hint: '需要你拍板的事项', tone: pendingApprovals.length > 0 ? 'warn' : 'ok' },
+      { key: 'leads', label: '线索总量', value: leads.length, hint: `热线索 ${(crm.hotLeads ?? []).length}`, tone: 'ok' },
+      { key: 'agents', label: 'Agent 运行', value: agentRuns.length, hint: `进行中 ${agentRuns.filter((r) => r.status === 'running').length}`, tone: 'ok' },
+      { key: 'overdue', label: '逾期跟进', value: (crm.overdueFollowUps ?? []).length, hint: 'CRM 跟进压力', tone: (crm.overdueFollowUps ?? []).length > 0 ? 'danger' : 'ok' },
+      { key: 'cash', label: '财务关注', value: Number((finance as any).openInvoices?.length ?? (finance as any).riskCount ?? 0), hint: '未结/风险相关条目', tone: 'warn' }
+    ];
+
+    const actions = [
+      ...pendingApprovals.slice(0, 3).map((a) => ({ kind: 'approval', title: a.prompt?.slice(0, 80) || a.action_type, detail: `审批 ${a.status}`, href: '/app/settings' })),
+      ...blocked.slice(0, 3).map((t) => ({ kind: 'task', title: t.title, detail: `状态 ${t.status}`, href: `/app/tasks?task=${encodeURIComponent(t.id)}` })),
+      ...overdue.slice(0, 2).map((f: any) => ({ kind: 'crm', title: f.title || f.name || '逾期跟进', detail: 'CRM 逾期', href: '/app/crm' })),
+      ...scored.slice(0, 2).map((x) => ({ kind: 'lead', title: x.lead.name, detail: `分数 ${x.score}`, href: '/app/crm' }))
+    ].slice(0, 8);
+
+    return {
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      headline: headlineParts.join(' · '),
+      kpis,
+      distributions: {
+        taskStatus,
+        taskPriority,
+        taskOwner,
+        leadStatus,
+        leadSource
+      },
+      trend,
+      lists: {
+        blockedTasks: blocked,
+        activeTasks: running,
+        hotLeads,
+        topScoredLeads: scored.slice(0, 8).map((x) => ({ ...x.lead, score_total: x.score })),
+        overdueFollowUps: overdue,
+        urgentMail,
+        pendingApprovals: pendingApprovals.slice(0, 8)
+      },
+      actions,
+      feishu: {
+        baseUrl: config.feishu.baseAppToken ? `https://opcto-a1.feishu.cn/base/${config.feishu.baseAppToken}` : null,
+        tables: {
+          tasks: '经营任务',
+          leads: '经营线索',
+          approvals: '审批',
+          artifacts: '交付物'
+        }
+      }
+    };
+  });
+
+  app.get('/api/web/feishu/status', { preHandler: allowWebConsoleAccess }, async () => {
+    const f = config.feishu;
+    const credentialsConfigured = Boolean(f.appId && f.appSecret && f.baseAppToken);
+    return {
+      ok: true,
+      feishu: {
+        mirrorEnabled: f.mirrorEnabled,
+        autoSyncIntervalMs: f.autoSyncIntervalMs,
+        credentialsConfigured,
+        mode: credentialsConfigured ? 'openapi' : 'noop',
+        baseAppTokenConfigured: Boolean(f.baseAppToken),
+        appIdConfigured: Boolean(f.appId),
+        appSecretConfigured: Boolean(f.appSecret),
+        openBaseUrl: f.openBaseUrl,
+        baseUrl: f.baseAppToken ? `https://opcto-a1.feishu.cn/base/${f.baseAppToken}` : null
+      }
+    };
+  });
+
+  app.post<{ Body: unknown }>('/api/web/feishu/sync', { preHandler: allowWebConsoleAccess }, async (request, reply) => {
+    const body = validateWebInput(feishuSyncSchema, request.body ?? {}, reply);
+    if (!body.ok) return body.response;
+    const f = config.feishu;
+    const mirror = buildFeishuMirror({
+      publicBaseUrl: config.app.publicBaseUrl,
+      appId: f.appId || undefined,
+      appSecret: f.appSecret || undefined,
+      appToken: f.baseAppToken || undefined,
+      baseUrl: f.openBaseUrl
+    });
+    const sync = new LedgerSync(repos, mirror);
+    const summary = await sync.run(body.data);
+    await repos.audit({
+      actorType: 'user',
+      action: 'feishu_ledger_sync',
+      entityType: 'feishu_base',
+      entityId: f.baseAppToken || undefined,
+      metadata: { mode: summary.mode, counts: summary.counts, errorCount: summary.errors.length }
+    });
+    return { ok: true, summary };
+  });
 
   app.get<{ Params: { id: string } }>('/api/web/artifacts/:id', { preHandler: allowWebConsoleAccess }, async (request, reply) => {
     const artifact = await repos.getArtifact(request.params.id);
@@ -362,7 +608,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     const body = validateWebInput(commandSchema, request.body, reply);
     if (!body.ok) return body.response;
     const result = await submitWebCommand(brain, repos, config, body.data.text);
-    return { ok: true, ...result };
+    return result;
   });
 
   app.post<{ Body: unknown }>('/api/web/mini-app/submit', { preHandler: allowWebConsoleAccess }, async (request, reply) => {
@@ -490,68 +736,6 @@ function previewForArtifact(artifact: ArtifactRecord) {
   };
 }
 
-function getTelegramInitDataValidation(request: FastifyRequest, config: AppConfig) {
-  const initData = tokenFromHeader(request.headers['x-telegram-init-data']);
-  if (!initData) {
-    return { present: false, valid: false, reason: 'missing_init_data' };
-  }
-  if (!config.telegram.botToken || config.telegram.botToken === 'change-me') {
-    return { present: true, valid: false, reason: 'bot_token_missing' };
-  }
-  if (!config.telegram.ownerIds.length) {
-    return { present: true, valid: false, reason: 'owner_ids_missing' };
-  }
-
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
-  if (!hash) {
-    return { present: true, valid: false, reason: 'hash_missing' };
-  }
-  params.delete('hash');
-
-  const authDate = Number(params.get('auth_date') ?? 0);
-  const ageSeconds = authDate ? Math.floor(Date.now() / 1000 - authDate) : null;
-  if (!authDate) {
-    return { present: true, valid: false, reason: 'auth_date_missing' };
-  }
-  if (ageSeconds !== null && ageSeconds > 24 * 60 * 60) {
-    return { present: true, valid: false, reason: 'auth_date_expired', authDate, ageSeconds };
-  }
-
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
-  const secret = createHmac('sha256', 'WebAppData').update(config.telegram.botToken).digest();
-  const expected = createHmac('sha256', secret).update(dataCheckString).digest('hex');
-  if (!safeTokenEqual(hash, expected)) {
-    return { present: true, valid: false, reason: 'hash_mismatch', authDate, ageSeconds };
-  }
-
-  const userParam = params.get('user');
-  if (!userParam) {
-    return { present: true, valid: false, reason: 'user_missing', authDate, ageSeconds };
-  }
-
-  try {
-    const user = JSON.parse(userParam) as { id?: unknown };
-    const userId = typeof user.id === 'number' ? user.id : undefined;
-    const ownerAllowed = typeof userId === 'number' && config.telegram.ownerIds.includes(userId);
-    return {
-      present: true,
-      valid: ownerAllowed,
-      reason: ownerAllowed ? 'ok' : 'owner_not_allowed',
-      userId,
-      ownerAllowed,
-      authDate,
-      ageSeconds,
-      queryId: params.get('query_id') ?? undefined,
-      startParam: params.get('start_param') ?? undefined
-    };
-  } catch {
-    return { present: true, valid: false, reason: 'user_parse_failed', authDate, ageSeconds };
-  }
-}
 
 async function notifyTelegramMiniAppSubmission(
   request: FastifyRequest,
@@ -580,18 +764,6 @@ async function notifyTelegramMiniAppSubmission(
 function truncateForTelegram(value: string, maxLength: number) {
   const text = value.trim();
   return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}...`;
-}
-
-function tokenFromHeader(value: string | string[] | undefined) {
-  const token = Array.isArray(value) ? value[0] : value;
-  return token?.trim() || null;
-}
-
-function safeTokenEqual(actual: string, expected: string) {
-  const actualBuffer = Buffer.from(actual);
-  const expectedBuffer = Buffer.from(expected);
-  if (actualBuffer.length !== expectedBuffer.length) return false;
-  return timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 async function readCodexInbox(inboxPath: string) {

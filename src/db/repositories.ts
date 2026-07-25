@@ -3,6 +3,11 @@ import type pg from 'pg';
 import type {
   ApprovalRecord,
   ApprovalStatus,
+  ASelfDecisionLogRecord,
+  ASelfMemoryItemRecord,
+  ASelfOpcRunRecord,
+  ASelfPermissionRuleRecord,
+  ASelfProfileRecord,
   AgentRunRecord,
   ArtifactRecord,
   AuditLogRecord,
@@ -11,6 +16,8 @@ import type {
   BrowserDashboard,
   BrowserExtractionRecord,
   BrowserRunRecord,
+  BusinessAnalyticsFactParams,
+  BusinessAnalyticsFactRecord,
   BrowserScreenshotRecord,
   BrowserStepRecord,
   CalendarDashboard,
@@ -404,6 +411,62 @@ export class Repositories {
     }>;
   }
 
+  async recordBusinessAnalyticsFact(params: Omit<BusinessAnalyticsFactParams, 'id'> & { id?: string }) {
+    const id = params.id ?? `baf_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO business_analytics_facts (
+        id, occurred_at, grain, scope, metric_code, metric_name, metric_value,
+        amount, score, channel, agent, stage, segment, customer, status, note,
+        source_object_type, source_object_id, is_demo, metadata
+      ) VALUES (
+        $1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7,
+        $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        occurred_at = EXCLUDED.occurred_at, metric_value = EXCLUDED.metric_value,
+        amount = EXCLUDED.amount, score = EXCLUDED.score, status = EXCLUDED.status,
+        note = EXCLUDED.note, metadata = EXCLUDED.metadata
+      RETURNING *
+      `,
+      [id, params.occurred_at ?? null, params.grain, params.scope, params.metric_code, params.metric_name, params.metric_value,
+        params.amount ?? null, params.score ?? null, params.channel ?? null, params.agent ?? null, params.stage ?? null,
+        params.segment ?? null, params.customer ?? null, params.status ?? null, params.note ?? null,
+        params.source_object_type ?? null, params.source_object_id ?? null, params.is_demo ?? false, JSON.stringify(params.metadata ?? {})]
+    );
+    return result.rows[0] as BusinessAnalyticsFactRecord;
+  }
+
+  async listBusinessAnalyticsFacts(limit = 1000) {
+    const result = await this.pool.query(
+      `SELECT * FROM business_analytics_facts ORDER BY occurred_at DESC LIMIT $1`,
+      [Math.min(5000, Math.max(1, limit))]
+    );
+    return result.rows as BusinessAnalyticsFactRecord[];
+  }
+
+  async listPaperclipTasks(limit = 250) {
+    const result = await this.pool.query(
+      `SELECT * FROM tasks
+       WHERE planning_metadata->>'source' = 'paperclip_http_adapter'
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+      [Math.min(1000, Math.max(1, limit))]
+    );
+    return result.rows as TaskRecord[];
+  }
+
+  async listBusinessAnalyticsFactsBySource(sourceObjectType: string, limit = 1000) {
+    const result = await this.pool.query(
+      `SELECT * FROM business_analytics_facts
+       WHERE source_object_type = $1
+       ORDER BY occurred_at DESC
+       LIMIT $2`,
+      [sourceObjectType, Math.min(5000, Math.max(1, limit))]
+    );
+    return result.rows as BusinessAnalyticsFactRecord[];
+  }
+
   async createTask(params: {
     title: string;
     description?: string;
@@ -446,7 +509,13 @@ export class Repositories {
       toStatus: params.status ?? 'new',
       note: 'Task created from Telegram intake'
     });
-    return result.rows[0] as TaskRecord;
+    const createdTask = result.rows[0] as TaskRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_task_created_${id}`, grain: 'event', scope: 'execution', metric_code: 'task_created', metric_name: '任务创建', metric_value: 1,
+      agent: createdTask.owner_agent, stage: createdTask.priority, status: createdTask.status, note: createdTask.title,
+      source_object_type: 'task', source_object_id: id, is_demo: false, metadata: { risk_level: createdTask.risk_level }
+    });
+    return createdTask;
   }
 
   async createSolutionRun(params: SolutionRunParams) {
@@ -769,6 +838,43 @@ export class Repositories {
       }
 
       await client.query('COMMIT');
+      for (const lead of leads) {
+        const score = lead.score as Record<string, unknown>;
+        const total = typeof score?.total_score === 'number'
+          ? score.total_score
+          : typeof score?.total === 'number'
+            ? score.total
+            : typeof score?.score === 'number'
+              ? score.score
+              : 0;
+        await this.recordBusinessAnalyticsFact({
+          id: `baf_lead_${lead.id}`, grain: 'event', scope: 'sales', metric_code: 'lead_created', metric_name: '新增线索', metric_value: 1,
+          score: Number(total), channel: lead.source, customer: lead.name, stage: lead.status, status: lead.status,
+          note: lead.name, source_object_type: 'lead', source_object_id: lead.id, is_demo: false,
+          metadata: { prospecting_run_id: lead.prospecting_run_id, organization_id: lead.organization_id, contact_id: lead.contact_id }
+        });
+        await this.recordBusinessAnalyticsFact({
+          id: `baf_new_leads_${lead.id}`, grain: 'event', scope: 'sales', metric_code: 'new_leads', metric_name: '新增线索计数', metric_value: 1,
+          score: Number(total), channel: lead.source, customer: lead.name, stage: lead.status, status: lead.status,
+          note: lead.name, source_object_type: 'lead', source_object_id: lead.id, is_demo: false,
+          metadata: { companion_of: 'lead_created' }
+        });
+        await this.recordBusinessAnalyticsFact({
+          id: `baf_lead_quality_${lead.id}`, grain: 'event', scope: 'sales', metric_code: 'lead_quality_event', metric_name: '线索质量事件', metric_value: 1,
+          score: Number(total), channel: lead.source, customer: lead.name, stage: lead.status, status: lead.status,
+          segment: typeof score?.priority === 'string' ? String(score.priority) : null,
+          note: lead.name, source_object_type: 'lead', source_object_id: lead.id, is_demo: false,
+          metadata: { companion_of: 'lead_created' }
+        });
+        if (lead.source) {
+          await this.recordBusinessAnalyticsFact({
+            id: `baf_leads_by_channel_${lead.id}`, grain: 'event', scope: 'growth', metric_code: 'leads_by_channel', metric_name: '渠道线索', metric_value: 1,
+            channel: lead.source, customer: lead.name, stage: lead.status, status: lead.status,
+            note: lead.name, source_object_type: 'lead', source_object_id: lead.id, is_demo: false,
+            metadata: { companion_of: 'lead_created' }
+          });
+        }
+      }
       return { leads, leadScores, enrichmentResults };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -880,7 +986,56 @@ export class Repositories {
         JSON.stringify(params.payload ?? {})
       ]
     );
-    return result.rows[0] as CampaignEventRecord;
+    const event = result.rows[0] as CampaignEventRecord;
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const recipient = typeof payload.recipient === 'string'
+      ? payload.recipient
+      : typeof payload.leadName === 'string'
+        ? payload.leadName
+        : null;
+    const channel = typeof payload.channel === 'string' ? payload.channel : 'email';
+    const isEmailSent = event.event_type === 'email_sent';
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_campaign_event_${event.id}`,
+      grain: 'event',
+      scope: isEmailSent ? 'content' : 'sales',
+      metric_code: isEmailSent ? 'campaign_email_sent' : 'campaign_event',
+      metric_name: isEmailSent ? '邮件触达' : '活动事件',
+      metric_value: 1,
+      channel,
+      customer: recipient,
+      stage: event.event_type,
+      status: event.event_type,
+      note: typeof payload.subject === 'string' ? payload.subject : event.event_type,
+      source_object_type: 'campaign_event',
+      source_object_id: event.id,
+      is_demo: false,
+      metadata: {
+        campaign_id: event.campaign_id,
+        lead_id: event.lead_id,
+        event_type: event.event_type
+      }
+    });
+    if (isEmailSent) {
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_content_output_${event.id}`,
+        grain: 'event',
+        scope: 'content',
+        metric_code: 'content_output',
+        metric_name: '内容产出',
+        metric_value: 1,
+        channel,
+        customer: recipient,
+        stage: 'email',
+        status: 'sent',
+        note: typeof payload.subject === 'string' ? payload.subject : 'campaign email',
+        source_object_type: 'campaign_event',
+        source_object_id: event.id,
+        is_demo: false,
+        metadata: { campaign_id: event.campaign_id, lead_id: event.lead_id }
+      });
+    }
+    return event;
   }
 
   async listCampaignEvents(params: { campaignId?: string; limit?: number } = {}) {
@@ -929,7 +1084,23 @@ export class Repositories {
         JSON.stringify(params.metadata ?? {})
       ]
     );
-    return result.rows[0] as AgentRunRecord;
+    const run = result.rows[0] as AgentRunRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_agent_run_${run.id}`,
+      grain: 'event',
+      scope: 'execution',
+      metric_code: 'agent_load',
+      metric_name: 'Agent 运行',
+      metric_value: 1,
+      agent: run.agent_id,
+      status: run.status,
+      note: `${run.agent_id} · ${run.model}`,
+      source_object_type: 'agent_run',
+      source_object_id: run.id,
+      is_demo: false,
+      metadata: { provider: run.provider, model: run.model, task_id: run.task_id }
+    });
+    return run;
   }
 
   async updateAgentRun(
@@ -1063,6 +1234,20 @@ export class Repositories {
     return result.rows as ToolCallRecord[];
   }
 
+  async findTaskByExternalReference(provider: string, externalId: string) {
+    const result = await this.pool.query(
+      `
+      SELECT * FROM tasks
+      WHERE ($1 = 'paperclip' AND planning_metadata->'paperclip'->>'issueId' = $2)
+         OR (planning_metadata->'external'->>'provider' = $1 AND planning_metadata->'external'->>'id' = $2)
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [provider, externalId]
+    );
+    return (result.rows[0] as TaskRecord | undefined) ?? null;
+  }
+
   async listTasks(limit = 20) {
     const result = await this.pool.query(
       `
@@ -1187,7 +1372,13 @@ export class Repositories {
       toStatus: status,
       note
     });
-    return result.rows[0] as TaskRecord;
+    const updatedTask = result.rows[0] as TaskRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_task_status_${taskId}_${status}_${Date.now()}`, grain: 'event', scope: 'execution', metric_code: 'task_status_changed', metric_name: '任务状态变更', metric_value: 1,
+      agent: updatedTask.owner_agent, stage: updatedTask.priority, status, note: note ?? updatedTask.title,
+      source_object_type: 'task', source_object_id: taskId, is_demo: false, metadata: { from_status: current?.status, risk_level: updatedTask.risk_level }
+    });
+    return updatedTask;
   }
 
   async completeTask(taskId: string, resultText: string) {
@@ -1210,7 +1401,18 @@ export class Repositories {
       toStatus: 'done',
       note: resultText
     });
-    return result.rows[0] as TaskRecord;
+    const completedTask = result.rows[0] as TaskRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_task_done_${taskId}`, grain: 'event', scope: 'execution', metric_code: 'tasks_done', metric_name: '任务完成', metric_value: 1,
+      agent: completedTask.owner_agent, stage: completedTask.priority, status: 'done', note: completedTask.title,
+      source_object_type: 'task', source_object_id: taskId, is_demo: false, metadata: { risk_level: completedTask.risk_level }
+    });
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_task_event_done_${taskId}`, grain: 'event', scope: 'execution', metric_code: 'task_event', metric_name: '任务事件', metric_value: 1,
+      agent: completedTask.owner_agent, stage: completedTask.priority, status: 'done', note: completedTask.title,
+      source_object_type: 'task', source_object_id: taskId, is_demo: false, metadata: { risk_level: completedTask.risk_level, event: 'done' }
+    });
+    return completedTask;
   }
 
   async addTaskEvent(params: {
@@ -1276,7 +1478,13 @@ export class Repositories {
         JSON.stringify(params.payload ?? {})
       ]
     );
-    return result.rows[0] as ApprovalRecord;
+    const approval = result.rows[0] as ApprovalRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_approval_${approval.id}`, grain: 'event', scope: 'risk', metric_code: 'approval_requested', metric_name: '审批请求', metric_value: 1,
+      stage: approval.risk_level, status: approval.status, note: approval.prompt, source_object_type: 'approval', source_object_id: approval.id,
+      is_demo: false, metadata: { action_type: approval.action_type, task_id: approval.task_id }
+    });
+    return approval;
   }
 
   async getApproval(id: string) {
@@ -1487,7 +1695,13 @@ export class Repositories {
         JSON.stringify(params.metadata ?? {})
       ]
     );
-    return result.rows[0] as ArtifactRecord;
+    const artifact = result.rows[0] as ArtifactRecord;
+    await this.recordBusinessAnalyticsFact({
+      id: `baf_artifact_${artifact.id}`, grain: 'event', scope: 'delivery', metric_code: 'artifact_created', metric_name: '交付物创建', metric_value: 1,
+      stage: artifact.type, status: 'created', note: artifact.title, source_object_type: 'artifact', source_object_id: artifact.id,
+      is_demo: false, metadata: { task_id: artifact.task_id, uri: artifact.uri }
+    });
+    return artifact;
   }
 
   async getArtifact(id: string) {
@@ -3308,6 +3522,206 @@ export class Repositories {
       [limit]
     );
     return result.rows as ContactRecord[];
+  }
+
+
+  async getASelfProfile() {
+    const result = await this.pool.query(
+      `SELECT * FROM a_self_profiles ORDER BY updated_at DESC LIMIT 1`
+    );
+    return (result.rows[0] ?? null) as ASelfProfileRecord | null;
+  }
+
+  async upsertASelfProfile(params: {
+    id?: string;
+    displayName: string;
+    mission: string;
+    profileMarkdown: string;
+    valuesOrder?: string[];
+    decisionPrinciples?: string[];
+    communicationStyle?: Record<string, unknown>;
+    boundaries?: string[];
+    status?: string;
+    confidence?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = params.id ?? 'a_self_default';
+    const result = await this.pool.query(
+      `
+      INSERT INTO a_self_profiles (
+        id, display_name, mission, profile_markdown, values_order, decision_principles,
+        communication_style, boundaries, status, confidence, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (id) DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        mission = EXCLUDED.mission,
+        profile_markdown = EXCLUDED.profile_markdown,
+        values_order = EXCLUDED.values_order,
+        decision_principles = EXCLUDED.decision_principles,
+        communication_style = EXCLUDED.communication_style,
+        boundaries = EXCLUDED.boundaries,
+        status = EXCLUDED.status,
+        confidence = EXCLUDED.confidence,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+      RETURNING *
+      `,
+      [
+        id,
+        params.displayName,
+        params.mission,
+        params.profileMarkdown,
+        JSON.stringify(params.valuesOrder ?? []),
+        JSON.stringify(params.decisionPrinciples ?? []),
+        JSON.stringify(params.communicationStyle ?? {}),
+        JSON.stringify(params.boundaries ?? []),
+        params.status ?? 'active',
+        params.confidence ?? 0.25,
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    return result.rows[0] as ASelfProfileRecord;
+  }
+
+  async listASelfMemoryItems(limit = 80) {
+    const result = await this.pool.query(
+      `SELECT * FROM a_self_memory_items
+       WHERE archived_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+      [Math.min(300, Math.max(1, limit))]
+    );
+    return result.rows as ASelfMemoryItemRecord[];
+  }
+
+  async createASelfMemoryItem(params: {
+    category: string;
+    title: string;
+    content: string;
+    why?: string | null;
+    tags?: string[];
+    source?: string;
+    sensitivity?: string;
+    confidence?: number;
+    status?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `asm_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO a_self_memory_items (
+        id, category, title, content, why, tags, source, sensitivity, confidence, status, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10, $11)
+      RETURNING *
+      `,
+      [
+        id,
+        params.category,
+        params.title,
+        params.content,
+        params.why ?? null,
+        params.tags ?? [],
+        params.source ?? 'manual',
+        params.sensitivity ?? 'private',
+        params.confidence ?? 0.5,
+        params.status ?? 'active',
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    return result.rows[0] as ASelfMemoryItemRecord;
+  }
+
+  async listASelfDecisionLogs(limit = 60) {
+    const result = await this.pool.query(
+      `SELECT * FROM a_self_decision_logs ORDER BY decided_at DESC LIMIT $1`,
+      [Math.min(200, Math.max(1, limit))]
+    );
+    return result.rows as ASelfDecisionLogRecord[];
+  }
+
+  async createASelfDecisionLog(params: {
+    decidedAt?: string;
+    question: string;
+    choice: string;
+    why: string;
+    result?: string | null;
+    review?: string | null;
+    futureRule?: string | null;
+    impact?: string;
+    status?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `asd_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO a_self_decision_logs (
+        id, decided_at, question, choice, why, result, review, future_rule, impact, status, metadata
+      ) VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING *
+      `,
+      [
+        id,
+        params.decidedAt ?? null,
+        params.question,
+        params.choice,
+        params.why,
+        params.result ?? null,
+        params.review ?? null,
+        params.futureRule ?? null,
+        params.impact ?? 'unknown',
+        params.status ?? 'open',
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    return result.rows[0] as ASelfDecisionLogRecord;
+  }
+
+  async listASelfPermissionRules() {
+    const result = await this.pool.query(
+      `SELECT * FROM a_self_permission_rules WHERE status = 'active' ORDER BY level ASC, action_type ASC`
+    );
+    return result.rows as ASelfPermissionRuleRecord[];
+  }
+
+  async listASelfOpcRuns(limit = 30) {
+    const result = await this.pool.query(
+      `SELECT * FROM a_self_opc_runs ORDER BY created_at DESC LIMIT $1`,
+      [Math.min(120, Math.max(1, limit))]
+    );
+    return result.rows as ASelfOpcRunRecord[];
+  }
+
+  async createASelfOpcRun(params: {
+    runType: string;
+    title: string;
+    marketScan?: string | null;
+    companyState?: string | null;
+    recommendations?: string | null;
+    metrics?: Record<string, unknown>;
+    status?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `asr_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO a_self_opc_runs (
+        id, run_type, title, market_scan, company_state, recommendations, metrics, status, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+      `,
+      [
+        id,
+        params.runType,
+        params.title,
+        params.marketScan ?? null,
+        params.companyState ?? null,
+        params.recommendations ?? null,
+        JSON.stringify(params.metrics ?? {}),
+        params.status ?? 'draft',
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    return result.rows[0] as ASelfOpcRunRecord;
   }
 
   async audit(params: {

@@ -1,11 +1,15 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Bot,
+  Brain,
+  Building2,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
+  Coffee,
   Command,
   Clock3,
   Eye,
@@ -13,23 +17,46 @@ import {
   Info,
   LayoutDashboard,
   Mail,
+  Menu,
   Network,
   RefreshCw,
   Search,
   Send,
   Settings,
+  BarChart3,
   ShieldCheck,
   Sparkles,
   Users,
   Workflow,
+  X,
   XCircle
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { AgentNetwork } from './components/AgentNetwork';
+import { PaperclipGovernance } from './components/PaperclipGovernance';
+import { ASelfConsole } from './components/ASelfConsole';
 import { apiGet, apiPost, apiPut } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
+import {
+  isMiniPanelKind,
+  miniPanelFromPath,
+  miniPanelHref,
+  routeFromPath,
+  type MiniPanelKind,
+  type RouteId
+} from './lib/routing';
+import {
+  EmptyState,
+  ErrorPanel,
+  HealthPill,
+  LoadingPanel,
+  PanelHeader,
+  SimpleList,
+  StatusPill,
+  truncateText
+} from './components/ui';
 import type {
   AgentDefinition,
   AgentRunRecord,
@@ -43,10 +70,10 @@ import type {
   WebCommandResponse
 } from './types';
 
-type RouteId = 'mission' | 'agents' | 'tasks' | 'mini' | 'crm' | 'mail' | 'finance' | 'calendar' | 'browser' | 'dependencies' | 'settings' | 'debug' | 'deliverables';
-
 const navItems: Array<{ id: RouteId; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'mission', label: 'Mission Control', icon: LayoutDashboard },
+  { id: 'aself', label: 'A- 数字自我', icon: Brain },
+  { id: 'paperclip', label: 'Paperclip 治理', icon: Building2 },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'tasks', label: 'Tasks', icon: Workflow },
   { id: 'mini', label: 'Mini App', icon: Sparkles },
@@ -55,22 +82,11 @@ const navItems: Array<{ id: RouteId; label: string; icon: typeof LayoutDashboard
   { id: 'finance', label: 'Finance', icon: CircleDollarSign },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'browser', label: 'Browser', icon: Eye },
+  { id: 'ops', label: '经营分析', icon: BarChart3 },
   { id: 'dependencies', label: 'Dependencies', icon: Settings },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'debug', label: 'Mini App Debug', icon: Info }
 ];
-
-type MiniPanelKind =
-  | 'ppt'
-  | 'crm'
-  | 'mail'
-  | 'finance'
-  | 'financeImport'
-  | 'agent'
-  | 'artifact'
-  | 'voice'
-  | 'screenshot'
-  | 'knowledge';
 
 const miniAppEntries: Array<{ kind: MiniPanelKind; label: string; description: string }> = [
   { kind: 'ppt', label: 'PPT 引导', description: '逐步确认主题、受众、用途、页数、风格和素材' },
@@ -90,10 +106,11 @@ export default function App() {
   const currentRoute = routeFromPath();
   const isHomeRoute = window.location.pathname === '/' || window.location.pathname === '';
   const isDebugRoute = currentRoute === 'debug';
+  const isMiniRoute = currentRoute === 'mini';
   const session = useQuery({
     queryKey: ['session'],
     queryFn: () => apiGet<{ ok: boolean; app: { name: string; env: string; timezone: string } }>('/api/web/session'),
-    enabled: !isDebugRoute && !isHomeRoute,
+    enabled: !isDebugRoute && !isHomeRoute && !isMiniRoute,
     retry: false
   });
 
@@ -103,6 +120,10 @@ export default function App() {
 
   if (isDebugRoute) {
     return <TelegramDebugPage standalone />;
+  }
+
+  if (isMiniRoute) {
+    return <MiniAppStandalone />;
   }
 
   if (session.isError) {
@@ -331,6 +352,7 @@ function HomePage() {
   );
 }
 
+
 function ConnectionErrorScreen({ error }: { error: unknown }) {
   const message = error instanceof Error ? error.message : '';
 
@@ -362,6 +384,7 @@ function BootScreen() {
 
 function Shell({ appName }: { appName: string }) {
   const [route, setRoute] = useRoute();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const queryClient = useQueryClient();
   const overview = useQuery({
     queryKey: ['overview'],
@@ -376,50 +399,110 @@ function Shell({ appName }: { appName: string }) {
     void queryClient.invalidateQueries();
   }
 
+  function navigate(nextRoute: RouteId) {
+    setRoute(nextRoute);
+    setSidebarOpen(false);
+  }
+
   const activeNav = navItems.find((item) => item.id === route) ?? navItems[0];
+  const healthOk = Boolean(overview.data?.health.database && overview.data?.health.redis);
+
+  useEffect(() => {
+    document.title = `${activeNav.label} · ${appName}`;
+  }, [activeNav.label, appName]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        document.getElementById('chief-command-input')?.focus();
+      }
+      if (event.key === '/' && !isTyping) {
+        event.preventDefault();
+        document.getElementById('chief-command-input')?.focus();
+      }
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${sidebarOpen ? 'sidebar-is-open' : ''}`}>
+      <button
+        type="button"
+        className="sidebar-backdrop"
+        aria-label="关闭导航"
+        onClick={() => setSidebarOpen(false)}
+      />
+      <aside className="sidebar" aria-label="主导航">
         <div className="brand">
           <div className="brand-mark">
             <Network size={21} />
           </div>
           <div>
             <strong>{appName}</strong>
-            <span>Agent OS Console</span>
+            <span>Operating Console</span>
+          </div>
+          <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="关闭导航">
+            <X size={18} />
+          </button>
+        </div>
+        <div className={`system-summary ${healthOk ? 'healthy' : 'attention'}`}>
+          <span className="system-dot" />
+          <div>
+            <strong>{healthOk ? '系统可执行' : '系统需检查'}</strong>
+            <small>{overview.data?.metrics.runningAgentRuns ?? 0} 个 Agent 运行中</small>
           </div>
         </div>
         <nav className="nav-list">
-          <NavGroup title="Command" items={navItems.slice(0, 4)} route={route} onRoute={setRoute} />
-          <NavGroup title="Business" items={navItems.slice(4, 9)} route={route} onRoute={setRoute} />
-          <NavGroup title="System" items={navItems.slice(9)} route={route} onRoute={setRoute} />
+          <NavGroup title="Command" items={navItems.slice(0, 5)} route={route} onRoute={navigate} />
+          <NavGroup title="Business" items={navItems.slice(5, 11)} route={route} onRoute={navigate} />
+          <NavGroup title="System" items={navItems.slice(11)} route={route} onRoute={navigate} />
         </nav>
         <div className="sidebar-footer">
           <HealthPill label="DB" ok={overview.data?.health.database} />
           <HealthPill label="Redis" ok={overview.data?.health.redis} />
+          <span className="sidebar-shortcut">⌘K 快速指令</span>
         </div>
       </aside>
 
       <main className="main-surface">
         <header className="topbar">
-          <div>
-            <span className="eyebrow">/app/{route === 'mission' ? '' : route}</span>
-            <h1>
-              <activeNav.icon size={22} />
-              {activeNav.label}
-            </h1>
+          <div className="topbar-title">
+            <button type="button" className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开导航">
+              <Menu size={20} />
+            </button>
+            <div>
+              <span className="eyebrow">OPERATIONS / {route === 'mission' ? 'MISSION' : route.toUpperCase()}</span>
+              <h1>
+                <activeNav.icon size={22} />
+                {activeNav.label}
+              </h1>
+            </div>
           </div>
           <div className="topbar-actions">
+            <span className={`live-status ${healthOk ? 'healthy' : 'attention'}`}>
+              <i /> {healthOk ? 'Live' : 'Attention'}
+            </span>
             <span className="sync-pill">
               <Clock3 size={14} />
               {overview.dataUpdatedAt ? formatTime(new Date(overview.dataUpdatedAt).toISOString()) : '同步中'}
             </span>
-            <button className="icon-button" onClick={refreshAll} title="刷新数据">
-              <RefreshCw size={18} />
+            <button className="icon-button" onClick={refreshAll} title="刷新全部数据" aria-label="刷新全部数据">
+              <RefreshCw className={overview.isFetching ? 'spin' : ''} size={18} />
             </button>
           </div>
         </header>
+
+        {!healthOk && overview.data ? (
+          <div className="system-alert" role="status">
+            <AlertTriangle size={17} />
+            <span>基础设施状态异常，部分自动化可能暂停。请先检查 {overview.data.health.database ? 'Redis' : 'PostgreSQL'}。</span>
+          </div>
+        ) : null}
 
         <CommandInput />
 
@@ -432,11 +515,7 @@ function Shell({ appName }: { appName: string }) {
             transition={{ duration: 0.18 }}
             className="route-surface"
           >
-            <RouteView
-              route={route}
-              overview={overview}
-              agents={agents.data?.agents ?? []}
-            />
+            <RouteView route={route} overview={overview} agents={agents.data?.agents ?? []} />
           </motion.section>
         </AnimatePresence>
       </main>
@@ -489,6 +568,10 @@ function RouteView({
   switch (route) {
     case 'mission':
       return <MissionControl overview={overviewData} agents={agents} />;
+    case 'aself':
+      return <ASelfConsole />;
+    case 'paperclip':
+      return <PaperclipGovernance />;
     case 'agents':
       return <AgentsPage agents={agents} />;
     case 'tasks':
@@ -528,6 +611,8 @@ function RouteView({
         ['截图证据', 'recentScreenshots'],
         ['提取结果', 'recentExtractions']
       ]} />;
+    case 'ops':
+      return <OpsInsightsPage />;
     case 'dependencies':
       return <DependencySetupPage />;
     case 'settings':
@@ -575,9 +660,9 @@ function MissionControl({ overview, agents }: { overview: OverviewResponse; agen
 
   return (
     <div className="mission-grid">
-      <MissionBrief overview={overview} />
+      <TodayCockpit overview={overview} />
 
-      <section className="metric-grid mission-metrics">
+      <section className="metric-grid mission-metrics compact-metrics">
         {metrics.map(({ label, value, detail, icon, tone }) => (
           <MetricCard key={label} label={label} value={value} detail={detail} icon={icon} tone={tone} />
         ))}
@@ -631,31 +716,367 @@ function MissionControl({ overview, agents }: { overview: OverviewResponse; agen
   );
 }
 
-function MissionBrief({ overview }: { overview: OverviewResponse }) {
-  const healthOk = overview.health.database && overview.health.redis;
-  const nextAction = overview.metrics.pendingApprovals
-    ? '先处理审批中心'
-    : overview.metrics.blockedTasks
-      ? '查看阻塞任务'
-      : overview.metrics.queuedTasks
-        ? '观察队列执行'
-        : '可以下达新指令';
-  const latestSignal = overview.recentMessages[0]?.text ?? '暂无最近消息';
+function buildTodayDigest(overview: OverviewResponse): { headline: string; reason: string; tone: string } {
+  const m = overview.metrics;
+  const crm = overview.dashboards.crm;
+  const finance = overview.dashboards.finance;
+  const hotLeads = countItems(crm.hotLeads) + countItems(crm.openOpportunities);
+  const overdue = countItems(crm.overdueFollowUps);
+  const financeRisks = countItems(finance.riskAlerts);
+  const netCashflow = Number(finance.netCashflow ?? 0);
+  const currency = String(finance.currency ?? 'CNY');
+
+  if (!overview.health.database || !overview.health.redis) {
+    return {
+      headline: '先恢复系统基础设施，再处理业务',
+      reason: 'PostgreSQL 或 Redis 连接异常，任务无法可靠执行。',
+      tone: 'danger'
+    };
+  }
+  if (m.pendingApprovals > 0) {
+    return {
+      headline: `今天最重要的是处理 ${m.pendingApprovals} 项待审批`,
+      reason: '这些高风险动作正卡在你这里，批准后关联任务才会继续执行。',
+      tone: 'danger'
+    };
+  }
+  if (financeRisks > 0) {
+    return {
+      headline: `今天最重要的是核对 ${financeRisks} 个财务风险`,
+      reason: netCashflow < 0
+        ? `本月净现金流为负（${formatMoney(netCashflow, currency)}），需要优先关注。`
+        : '发票、付款或订阅出现异常提醒，建议先核对。',
+      tone: 'danger'
+    };
+  }
+  if (m.blockedTasks > 0) {
+    return {
+      headline: `今天最重要的是解除 ${m.blockedTasks} 个阻塞任务`,
+      reason: '解除阻塞比继续创建新任务更能推进今天的结果。',
+      tone: 'warning'
+    };
+  }
+  if (overdue > 0) {
+    return {
+      headline: `今天最重要的是跟进 ${overdue} 个逾期客户`,
+      reason: '逾期跟进会让成交机会快速冷却，越早联系越好。',
+      tone: 'growth'
+    };
+  }
+  if (hotLeads > 0) {
+    return {
+      headline: `今天可以推进 ${hotLeads} 个销售机会`,
+      reason: '没有阻塞项，适合把精力放在获客和成交上。',
+      tone: 'growth'
+    };
+  }
+  return {
+    headline: '今天没有紧急事项，适合做增长和复盘',
+    reason: '可以主动布置一个获客、交付或复盘目标。',
+    tone: 'done'
+  };
+}
+
+type DrillItem = { id: string; primary: string; meta?: string };
+
+function drillItemsFor(key: string, overview: OverviewResponse): DrillItem[] {
+  const crm = overview.dashboards.crm;
+  const mail = overview.dashboards.mail;
+  const finance = overview.dashboards.finance;
+  const currency = String(finance.currency ?? 'CNY');
+  switch (key) {
+    case 'approvals':
+      return (overview.pendingApprovals ?? []).slice(0, 6).map((a) => ({
+        id: String(a.id),
+        primary: String(a.task_title ?? a.action_type ?? '待审批动作'),
+        meta: `${a.risk_level ?? ''} · ${formatTime(a.created_at)}`
+      }));
+    case 'blocked':
+      return (overview.tasks ?? [])
+        .filter((t) => t.status === 'blocked' || t.status === 'failed')
+        .slice(0, 6)
+        .map((t) => ({
+          id: t.id,
+          primary: t.title,
+          meta: `${t.owner_agent ?? ''} · ${t.status} · ${formatTime(t.created_at)}`
+        }));
+    case 'leads': {
+      const leads = (crm.hotLeads ?? []).slice(0, 3).map((c: any) => ({
+        id: String(c.id),
+        primary: String(c.name ?? '未命名联系人'),
+        meta: [c.role, c.organization_name].filter(Boolean).join(' · ') || '热线索'
+      }));
+      const opps = (crm.openOpportunities ?? []).slice(0, 3).map((o: any) => ({
+        id: String(o.id),
+        primary: String(o.title ?? '销售机会'),
+        meta: [
+          o.value_amount ? formatMoney(o.value_amount, o.currency ?? currency) : null,
+          o.stage,
+          o.contact_name ?? o.organization_name
+        ].filter(Boolean).join(' · ') || '开放机会'
+      }));
+      return [...leads, ...opps].slice(0, 6);
+    }
+    case 'mail': {
+      const urgent = (mail.urgent ?? []).slice(0, 4).map((t: any) => ({
+        id: String(t.id),
+        primary: String(t.subject ?? '(无主题)'),
+        meta: [t.contact_name ?? t.organization_name, '紧急'].filter(Boolean).join(' · ')
+      }));
+      const drafts = (mail.draftsWaitingApproval ?? []).slice(0, 3).map((d: any) => ({
+        id: String(d.id),
+        primary: String(d.subject ?? '邮件草稿'),
+        meta: '等待确认的草稿'
+      }));
+      return [...urgent, ...drafts].slice(0, 6);
+    }
+    case 'finance':
+      return (finance.riskAlerts ?? []).slice(0, 6).map((r: any, i: number) => ({
+        id: `risk_${i}`,
+        primary: String(r)
+      }));
+    default:
+      return [];
+  }
+}
+
+function TodayCockpit({ overview }: { overview: OverviewResponse }) {
+  const queryClient = useQueryClient();
+  const [openDetail, setOpenDetail] = useState<string | null>(null);
+  const opsPulse = useQuery({
+    queryKey: ['ops-insights', 'home'],
+    queryFn: () => apiGet<OpsInsightsResponse>('/api/web/ops-insights'),
+    staleTime: 20_000,
+    refetchInterval: 60_000
+  });
+  const hour = new Date().getHours();
+  const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  const hotLeads = countItems(overview.dashboards.crm.hotLeads) + countItems(overview.dashboards.crm.openOpportunities);
+  const urgentMail = countItems(overview.dashboards.mail.urgent) + countItems(overview.dashboards.mail.draftsWaitingApproval);
+  const financeRisks = countItems(overview.dashboards.finance.riskAlerts);
+  const todayEvents = countItems(overview.dashboards.calendar.todayEvents);
+  const digest = buildTodayDigest(overview);
+
+  const approvalDecision = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
+      apiPost<WebCommandResponse>('/api/web/command', { text: `/${action} ${id}` }),
+    onSuccess: () => void queryClient.invalidateQueries()
+  });
+
+  const priorities = [
+    overview.metrics.pendingApprovals > 0 ? {
+      key: 'approvals',
+      tone: 'danger',
+      label: `${overview.metrics.pendingApprovals} 项决策等你确认`,
+      detail: '高风险动作不会自动越权，批准后关联任务会继续执行。',
+      action: '处理审批',
+      onClick: () => openConsoleRoute('finance', 'panel=approvals')
+    } : null,
+    overview.metrics.blockedTasks > 0 ? {
+      key: 'blocked',
+      tone: 'warning',
+      label: `${overview.metrics.blockedTasks} 个任务被阻塞`,
+      detail: '先解除阻塞，比继续创建新任务更能推进今天的结果。',
+      action: '查看阻塞任务',
+      onClick: () => openConsoleRoute('tasks', 'status=blocked')
+    } : null,
+    hotLeads > 0 ? {
+      key: 'leads',
+      tone: 'growth',
+      label: `${hotLeads} 个销售机会可推进`,
+      detail: '检查热线索、开放机会和逾期跟进，避免机会冷却。',
+      action: '打开 CRM',
+      onClick: () => openConsoleRoute('crm')
+    } : null,
+    urgentMail > 0 ? {
+      key: 'mail',
+      tone: 'neutral',
+      label: `${urgentMail} 封邮件需要关注`,
+      detail: '优先处理客户邮件与等待确认的草稿。',
+      action: '处理邮件',
+      onClick: () => openConsoleRoute('mail')
+    } : null,
+    financeRisks > 0 ? {
+      key: 'finance',
+      tone: 'danger',
+      label: `${financeRisks} 个财务风险提醒`,
+      detail: '核对发票、付款、订阅和现金流异常。',
+      action: '检查财务',
+      onClick: () => openConsoleRoute('finance')
+    } : null
+  ].filter(Boolean).slice(0, 4) as Array<{
+    key: string;
+    tone: string;
+    label: string;
+    detail: string;
+    action: string;
+    onClick: () => void;
+  }>;
+
+  const clearDay = priorities.length === 0;
+  const pendingApprovals = overview.pendingApprovals.slice(0, 2);
+  const dateLabel = new Intl.DateTimeFormat('zh-CN', {
+    month: 'long', day: 'numeric', weekday: 'long'
+  }).format(new Date());
+
+  const pulseStats = [
+    { key: 'intervene', value: overview.metrics.pendingApprovals + overview.metrics.blockedTasks, label: '需要你介入' },
+    { key: 'leads', value: hotLeads, label: '销售机会' },
+    { key: 'events', value: todayEvents, label: '今日日程' }
+  ];
+
+  function toggleDetail(key: string) {
+    setOpenDetail((current) => (current === key ? null : key));
+  }
 
   return (
-    <section className="panel mission-brief">
-      <div className="brief-copy">
-        <span className="eyebrow">Mission Brief</span>
-        <h2>当前系统{healthOk ? '可执行' : '需要检查'}，下一步：{nextAction}</h2>
-        <p>{truncateText(latestSignal, 220)}</p>
+    <section className="today-cockpit">
+      <div className={`today-hero panel tone-${digest.tone}`}>
+        <div className="today-greeting">
+          <span className="eyebrow"><Coffee size={13} /> {dateLabel}</span>
+          <h2>{greeting}，老板。</h2>
+          <p className="today-headline">{digest.headline}</p>
+          <p className="today-reason">{digest.reason}</p>
+        </div>
+        <div className="today-pulse">
+          {pulseStats.map((stat) => (
+            <div key={stat.key}><strong>{stat.value}</strong><span>{stat.label}</span></div>
+          ))}
+        </div>
       </div>
-      <div className="brief-actions">
-        <StatusChip icon={Gauge} label={healthOk ? 'DB/Redis 正常' : '基础设施异常'} tone={healthOk ? 'done' : 'danger'} />
-        <StatusChip icon={Mail} label="邮件可自动发送" tone="active" />
-        <StatusChip icon={AlertTriangle} label="财务动作强审批" tone="danger" />
+
+      {opsPulse.data ? (
+        <section className="panel ops-home-pulse">
+          <div className="ops-home-pulse-head">
+            <PanelHeader title="经营脉搏" hint="自动分析 · 每分钟刷新" />
+            <button type="button" className="text-button" onClick={() => openConsoleRoute('ops')}>查看完整分析 <ArrowRight size={14} /></button>
+          </div>
+          <p className="ops-home-headline">{opsPulse.data.headline}</p>
+          <div className="ops-home-kpis">
+            {opsPulse.data.kpis.slice(0, 4).map((kpi) => (
+              <div key={kpi.key} className={`ops-home-kpi ${kpi.tone ?? ''}`}>
+                <span>{kpi.label}</span>
+                <strong>{kpi.value}</strong>
+                <small>{kpi.hint}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="today-work-grid">
+        <section className="panel focus-panel">
+          <PanelHeader title="今天先做什么" hint="按经营影响自动排序，点卡片看是哪些" />
+          {clearDay ? (
+            <div className="clear-day-state">
+              <CheckCircle2 size={25} />
+              <div><strong>当前没有阻塞项</strong><span>建议主动推进一个增长目标。</span></div>
+              <button onClick={() => prefillChiefCommand('帮我分析当前经营数据，找出今天最值得推进的一个增长动作，并创建执行任务', true)}>让 Chief 给建议</button>
+            </div>
+          ) : (
+            <div className="priority-list">
+              {priorities.map((priority, index) => {
+                const items = drillItemsFor(priority.key, overview);
+                const expanded = openDetail === priority.key;
+                return (
+                  <article key={priority.key} className={`priority-item ${priority.tone} ${expanded ? 'expanded' : ''}`}>
+                    <div className="priority-row">
+                      <span className="priority-rank">{index + 1}</span>
+                      <button
+                        type="button"
+                        className="priority-body"
+                        onClick={() => toggleDetail(priority.key)}
+                        aria-expanded={expanded}
+                      >
+                        <strong>{priority.label}</strong>
+                        <p>{priority.detail}</p>
+                        {items.length ? (
+                          <span className="priority-peek">
+                            {expanded ? '收起明细' : '查看是哪些'}
+                            <ChevronRight size={13} className={expanded ? 'rot90' : ''} />
+                          </span>
+                        ) : null}
+                      </button>
+                      <button className="priority-action" onClick={priority.onClick}>{priority.action}<ArrowRight size={15} /></button>
+                    </div>
+                    {expanded && items.length ? (
+                      <ul className="priority-drill">
+                        {items.map((item) => (
+                          <li key={item.id}>
+                            <span className="drill-primary">{item.primary}</span>
+                            {item.meta ? <span className="drill-meta">{item.meta}</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="panel quick-work-panel">
+          <PanelHeader title="快速开始" hint="点一下直接让 Chief 执行" />
+          <div className="human-actions">
+            <button onClick={() => prefillChiefCommand('生成今天的经营简报：总结任务、审批、客户、现金流风险，并告诉我最重要的三件事', true)}>
+              <Gauge size={18} /><span><strong>生成今日简报</strong><small>把所有经营信号浓缩成三件事</small></span>
+            </button>
+            <button onClick={() => prefillChiefCommand('检查所有阻塞和失败任务，按影响排序，并为每项给出下一步修复动作', true)}>
+              <AlertTriangle size={18} /><span><strong>清理阻塞任务</strong><small>找原因并生成可执行修复清单</small></span>
+            </button>
+            <button onClick={() => prefillChiefCommand('检查 CRM 里需要跟进的客户和销售机会，帮我起草今天的跟进计划，但不要直接发送', true)}>
+              <Users size={18} /><span><strong>推进客户跟进</strong><small>找出今天最值得联系的人</small></span>
+            </button>
+            <button onClick={() => prefillChiefCommand('检查当前财务数据、发票、订阅和风险提醒，生成现金流健康摘要', true)}>
+              <CircleDollarSign size={18} /><span><strong>检查现金流</strong><small>提前发现付款和订阅风险</small></span>
+            </button>
+          </div>
+        </section>
       </div>
+
+      {pendingApprovals.length ? (
+        <section className="panel owner-decision-panel">
+          <PanelHeader title="需要你的决定" hint="可在这里直接处理，不必跳转" />
+          <div className="owner-decision-list">
+            {pendingApprovals.map((approval) => (
+              <article key={approval.id}>
+                <div>
+                  <span className="decision-risk">{approval.risk_level}</span>
+                  <strong>{approval.task_title ?? approval.action_type}</strong>
+                  <p>{truncateText(approval.prompt, 150)}</p>
+                </div>
+                <div className="decision-buttons">
+                  <button
+                    disabled={approvalDecision.isPending}
+                    onClick={() => approvalDecision.mutate({ id: approval.id, action: 'approve' })}
+                  >批准</button>
+                  <button
+                    className="danger-button"
+                    disabled={approvalDecision.isPending}
+                    onClick={() => approvalDecision.mutate({ id: approval.id, action: 'reject' })}
+                  >拒绝</button>
+                </div>
+              </article>
+            ))}
+          </div>
+          {approvalDecision.isSuccess ? <p className="inline-success"><CheckCircle2 size={15} /> 决定已记录，相关数据正在刷新。</p> : null}
+          {approvalDecision.isError ? <p className="form-error">操作失败：{approvalDecision.error.message}</p> : null}
+        </section>
+      ) : null}
     </section>
   );
+}
+
+function openConsoleRoute(route: RouteId, query = '') {
+  const suffix = query ? `?${query}` : '';
+  window.history.pushState({}, '', route === 'mission' ? '/app' : `/app/${route}${suffix}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function prefillChiefCommand(text: string, autoRun = false) {
+  window.dispatchEvent(new CustomEvent('tele-opc:prefill-command', { detail: { text, autoRun } }));
 }
 
 function OperationsStrip({ overview }: { overview: OverviewResponse }) {
@@ -730,7 +1151,8 @@ function AgentsPage({ agents }: { agents: AgentDefinition[] }) {
 }
 
 function TasksPage() {
-  const [status, setStatus] = useState('');
+  const statusFromQuery = useQueryParam('status');
+  const [status, setStatus] = useState(statusFromQuery);
   const panel = usePanelParam();
   const selectedTaskId = useQueryParam('task');
   const queryClient = useQueryClient();
@@ -747,6 +1169,10 @@ function TasksPage() {
   });
   const statuses = ['', 'planned', 'queued', 'running', 'blocked', 'waiting_approval', 'done', 'failed'];
   const miniPanel = isMiniPanelKind(panel) ? panel : null;
+
+  useEffect(() => {
+    if (statusFromQuery && statuses.includes(statusFromQuery)) setStatus(statusFromQuery);
+  }, [statusFromQuery]);
 
   useEffect(() => {
     if (!miniPanel) return;
@@ -840,6 +1266,14 @@ function MiniAppPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function MiniAppStandalone() {
+  return (
+    <main className="mini-app-standalone">
+      <MiniAppPage />
+    </main>
   );
 }
 
@@ -2408,6 +2842,444 @@ function GuideSection({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+type FeishuStatus = {
+  ok: boolean;
+  feishu: {
+    mirrorEnabled: boolean;
+    credentialsConfigured: boolean;
+    mode: 'openapi' | 'noop';
+    baseAppTokenConfigured: boolean;
+    appIdConfigured: boolean;
+    appSecretConfigured: boolean;
+    openBaseUrl: string;
+    baseUrl: string | null;
+  };
+};
+
+type FeishuSyncCount = { attempted: number; created: number; updated: number; skipped: number; failed: number };
+type FeishuSyncSummary = {
+  mode: 'openapi' | 'noop';
+  startedAt: string;
+  finishedAt: string;
+  counts: Record<'task' | 'approval' | 'lead' | 'artifact', FeishuSyncCount>;
+  errors: Array<{ kind: string; id: string; message: string }>;
+};
+
+function FeishuLedgerCard() {
+  const queryClient = useQueryClient();
+  const status = useQuery({
+    queryKey: ['feishu-status'],
+    queryFn: () => apiGet<FeishuStatus>('/api/web/feishu/status')
+  });
+  const sync = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; summary: FeishuSyncSummary }>('/api/web/feishu/sync', {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['feishu-status'] })
+  });
+
+  const f = status.data?.feishu;
+  const live = f?.credentialsConfigured ?? false;
+  const summary = sync.data?.summary;
+
+  return (
+    <section className="panel" style={{ gridColumn: '1 / -1' }}>
+      <PanelHeader
+        title="飞书经营台账"
+        hint="把任务·审批·线索·交付物投影进飞书多维表格，用飞书当经营台账（Phase A：单向投影）"
+      />
+      {status.isLoading ? (
+        <LoadingPanel />
+      ) : status.error ? (
+        <ErrorPanel error={status.error} />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <HealthPill label={live ? '实时写入 (OpenAPI)' : '演练模式 (未配凭证)'} ok={live} />
+            <HealthPill label="Base 已连" ok={f?.baseAppTokenConfigured} />
+            <HealthPill label="App ID" ok={f?.appIdConfigured} />
+            <HealthPill label="App Secret" ok={f?.appSecretConfigured} />
+          </div>
+
+          {!live ? (
+            <div className="json-panel" style={{ lineHeight: 1.7 }}>
+              飞书写入通道尚未接通。要开启实时同步，需在飞书开放平台建<b>企业自建应用</b>，
+              把它加为该 Base 的可编辑协作者，然后在 <code>.env</code> 填入：
+              <br />
+              <code>APPOS_FEISHU_APP_ID</code> / <code>APPOS_FEISHU_APP_SECRET</code>
+              （<code>APPOS_FEISHU_BASE_APP_TOKEN</code> 已配好）。
+              <br />
+              未配凭证时点击下方按钮会跑<b>演练</b>：只统计将写入的记录数，不触网、不改飞书。
+            </div>
+          ) : null}
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={sync.isPending}
+              onClick={() => sync.mutate()}
+            >
+              {sync.isPending ? '同步中…' : live ? '同步到飞书' : '演练同步'}
+            </button>
+            {f?.baseUrl ? (
+              <a className="secondary-button" href={f.baseUrl} target="_blank" rel="noreferrer">
+                打开飞书 Base
+              </a>
+            ) : null}
+          </div>
+
+          {sync.error ? <ErrorPanel error={sync.error} /> : null}
+
+          {summary ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 13, opacity: 0.75 }}>
+                {summary.mode === 'openapi' ? '已写入飞书' : '演练结果（未触网）'} ·
+                {' '}耗时 {Math.max(0, Date.parse(summary.finishedAt) - Date.parse(summary.startedAt))}ms
+                {summary.errors.length ? ` · ${summary.errors.length} 条失败` : ''}
+              </div>
+              <div className="dashboard-grid" style={{ gap: 8 }}>
+                {(['task', 'approval', 'lead', 'artifact'] as const).map((kind) => {
+                  const c = summary.counts[kind];
+                  const label = { task: '任务', approval: '审批', lead: '线索', artifact: '交付物' }[kind];
+                  return (
+                    <div key={kind} className="json-panel" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <b>{label}</b>
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>
+                        共 {c.attempted}
+                        {summary.mode === 'openapi'
+                          ? ` · 新建 ${c.created} · 更新 ${c.updated}`
+                          : ` · 待写 ${c.skipped}`}
+                        {c.failed ? ` · 失败 ${c.failed}` : ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+type OpsInsightsResponse = {
+  ok: boolean;
+  generatedAt: string;
+  headline: string;
+  kpis: Array<{ key: string; label: string; value: number; hint?: string; tone?: string }>;
+  distributions: {
+    taskStatus: Record<string, number>;
+    taskPriority: Record<string, number>;
+    taskOwner: Record<string, number>;
+    leadStatus: Record<string, number>;
+    leadSource: Record<string, number>;
+  };
+  trend: Array<{ day: string; tasks: number; leads: number }>;
+  lists: {
+    blockedTasks: AnyRecord[];
+    activeTasks: AnyRecord[];
+    hotLeads: AnyRecord[];
+    topScoredLeads: AnyRecord[];
+    overdueFollowUps: AnyRecord[];
+    urgentMail: AnyRecord[];
+    pendingApprovals: AnyRecord[];
+  };
+  actions: Array<{ kind: string; title: string; detail: string; href: string }>;
+  feishu: { baseUrl: string | null; tables: Record<string, string> };
+};
+
+type AnalyticsMetric = { key: string; label: string; value: number; format: 'number' | 'money' | 'percent'; hint: string };
+type AnalyticsPoint = { date: string; value: number };
+type AnalyticsBreakdown = { label: string; value: number };
+type BusinessAnalyticsResponse = {
+  ok: true;
+  source: { mode: string; label: string; refreshedAt: string; facts: number; message: string };
+  company: { kpis: AnalyticsMetric[]; trends: Record<string, AnalyticsPoint[]>; breakdowns: Record<string, AnalyticsBreakdown[]> };
+  growth: { funnel: AnalyticsBreakdown[]; channels: AnalyticsBreakdown[]; leadStates: AnalyticsBreakdown[]; platform: AnalyticsBreakdown[]; leadQuality: AnalyticsBreakdown[] };
+  customers: { kpis: AnalyticsMetric[]; ranking: Array<{ name: string; score: number; amount: number; stage: string; segment: string; source: string }>; segments: AnalyticsBreakdown[]; stages: AnalyticsBreakdown[] };
+  execution: { taskStatus: AnalyticsBreakdown[]; agentLoad: AnalyticsBreakdown[]; risk: AnalyticsBreakdown[]; delivery: AnalyticsBreakdown[]; failures: AnalyticsBreakdown[] };
+  weekly: { kpis: AnalyticsMetric[]; trends: Record<string, AnalyticsPoint[]> };
+};
+
+type AnalyticsTab = 'company' | 'growth' | 'customers' | 'weekly' | 'execution';
+const analyticsTabs: Array<{ id: AnalyticsTab; label: string; description: string }> = [
+  { id: 'company', label: '公司整体', description: '结果、管道与经营健康' },
+  { id: 'growth', label: '增长获客', description: '渠道、漏斗与内容' },
+  { id: 'customers', label: '客户下钻', description: '客户价值与质量' },
+  { id: 'weekly', label: '周复盘', description: '连续趋势与复盘' },
+  { id: 'execution', label: '执行风险', description: '任务、Agent、治理' }
+];
+
+function analyticsFormat(value: number, format: AnalyticsMetric['format'] | 'number' = 'number') {
+  if (format === 'money') return formatMoney(value);
+  if (format === 'percent') return `${Number(value || 0).toFixed(1)}%`;
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function MiniBars({ title, data, valueFormat = 'number' }: { title: string; data: AnalyticsBreakdown[]; valueFormat?: AnalyticsMetric['format'] }) {
+  const values = data.filter((item) => Number.isFinite(item.value)).slice(0, 10);
+  const max = Math.max(1, ...values.map((item) => item.value));
+  return (
+    <section className="panel analytics-chart-card">
+      <PanelHeader title={title} hint={`${values.length} 个维度`} />
+      {values.length ? <div className="analytics-bars">
+        {values.map((item) => <div className="analytics-bar-row" key={item.label}>
+          <div className="analytics-bar-label"><span title={item.label}>{item.label}</span><strong>{analyticsFormat(item.value, valueFormat)}</strong></div>
+          <div className="analytics-bar-track"><i style={{ width: `${Math.max(4, item.value / max * 100)}%` }} /></div>
+        </div>)}
+      </div> : <EmptyState text="暂无可分析数据" />}
+    </section>
+  );
+}
+
+function MiniTrend({ title, series, format = 'number', color = 'violet' }: { title: string; series: AnalyticsPoint[]; format?: AnalyticsMetric['format']; color?: string }) {
+  const points = series.slice(-24);
+  const max = Math.max(1, ...points.map((item) => item.value));
+  return (
+    <section className="panel analytics-chart-card analytics-trend-card">
+      <PanelHeader title={title} hint={points.length ? `${points[0].date.slice(5)} — ${points.at(-1)?.date.slice(5)}` : '暂无趋势'} />
+      {points.length ? <>
+        <div className={`analytics-spark ${color}`}>
+          {points.map((point) => <div className="analytics-spark-column" key={point.date} title={`${point.date} · ${analyticsFormat(point.value, format)}`}>
+            <i style={{ height: `${Math.max(5, point.value / max * 100)}%` }} />
+          </div>)}
+        </div>
+        <div className="analytics-trend-caption"><span>{points[0].date.slice(5)}</span><strong>{analyticsFormat(points.at(-1)?.value ?? 0, format)}</strong><span>{points.at(-1)?.date.slice(5)}</span></div>
+      </> : <EmptyState text="暂无可分析数据" />}
+    </section>
+  );
+}
+
+function AnalyticsMetrics({ metrics }: { metrics: AnalyticsMetric[] }) {
+  return <div className="metric-grid wide analytics-metric-grid">{metrics.map((metric) => <article className="metric-card done" key={metric.key}>
+    <span>{metric.label}</span><strong>{analyticsFormat(metric.value, metric.format)}</strong><small>{metric.hint}</small>
+  </article>)}</div>;
+}
+
+function AnalyticsHub() {
+  const [tab, setTab] = useState<AnalyticsTab>(() => {
+    const requested = new URLSearchParams(window.location.search).get('view') as AnalyticsTab | null;
+    return analyticsTabs.some((item) => item.id === requested) ? requested! : 'company';
+  });
+  const query = useQuery({ queryKey: ['business-analytics'], queryFn: () => apiGet<BusinessAnalyticsResponse>('/api/web/analytics'), refetchInterval: 60_000 });
+  const switchTab = (next: AnalyticsTab) => {
+    setTab(next);
+    const url = new URL(window.location.href); url.searchParams.set('view', next); window.history.replaceState({}, '', url);
+  };
+  if (query.isLoading) return <LoadingPanel />;
+  if (query.isError || !query.data) return <ErrorPanel error={query.error ?? new Error('分析数据不可用')} />;
+  const data = query.data;
+  return <section className="analytics-hub">
+    <div className={`analytics-source ${data.source.mode.includes('demo') ? 'demo' : ''}`}>
+      <div><span className="eyebrow">NATIVE BUSINESS INTELLIGENCE</span><strong>{data.source.label}</strong><p>{data.source.message}</p></div>
+      <div className="analytics-source-meta"><span>{data.source.facts.toLocaleString()} 条事实</span><span>{formatTime(data.source.refreshedAt)}</span></div>
+    </div>
+    <div className="analytics-tabs" role="tablist">
+      {analyticsTabs.map((item) => <button type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => switchTab(item.id)} key={item.id}><strong>{item.label}</strong><small>{item.description}</small></button>)}
+    </div>
+    {tab === 'company' ? <div className="analytics-view"><AnalyticsMetrics metrics={data.company.kpis} /><div className="analytics-grid two"><MiniTrend title="新增线索趋势" series={data.company.trends.leads} color="green" /><MiniTrend title="成交金额趋势" series={data.company.trends.revenue} format="money" color="amber" /><MiniTrend title="管道金额趋势" series={data.company.trends.pipeline} format="money" color="violet" /><MiniTrend title="内容产出趋势" series={data.company.trends.content} color="blue" /><MiniBars title="行业管道结构" data={data.company.breakdowns.industryPipeline} valueFormat="money" /><MiniBars title="经营范围覆盖" data={data.company.breakdowns.scope} /></div></div> : null}
+    {tab === 'growth' ? <div className="analytics-view"><div className="analytics-grid two"><MiniBars title="获客漏斗" data={data.growth.funnel} /><MiniBars title="渠道进水" data={data.growth.channels} /><MiniBars title="线索阶段" data={data.growth.leadStates} /><MiniBars title="内容平台产出" data={data.growth.platform} /><MiniBars title="行业线索质量" data={data.growth.leadQuality} valueFormat="percent" /></div></div> : null}
+    {tab === 'customers' ? <div className="analytics-view"><AnalyticsMetrics metrics={data.customers.kpis} /><section className="panel analytics-customer-table"><PanelHeader title="客户价值排序" hint="可作为 CRM 跟进优先级" /><div className="analytics-table-wrap"><table><thead><tr><th>客户</th><th>质量分</th><th>预估管道</th><th>阶段</th><th>行业</th><th>来源</th></tr></thead><tbody>{data.customers.ranking.map((item) => <tr key={item.name}><td><strong>{item.name}</strong></td><td>{analyticsFormat(item.score, 'percent')}</td><td>{analyticsFormat(item.amount, 'money')}</td><td><StatusPill status={item.stage} /></td><td>{item.segment}</td><td>{item.source}</td></tr>)}</tbody></table></div></section><div className="analytics-grid two"><MiniBars title="行业客户价值" data={data.customers.segments} valueFormat="money" /><MiniBars title="客户所处阶段" data={data.customers.stages} /></div></div> : null}
+    {tab === 'weekly' ? <div className="analytics-view"><AnalyticsMetrics metrics={data.weekly.kpis} /><div className="analytics-grid two"><MiniTrend title="新增线索" series={data.weekly.trends.leads} color="green" /><MiniTrend title="合格线索" series={data.weekly.trends.qualified} color="blue" /><MiniTrend title="报价产出" series={data.weekly.trends.quotes} color="violet" /><MiniTrend title="成交单数" series={data.weekly.trends.won} color="amber" /><MiniTrend title="成交金额" series={data.weekly.trends.revenue} format="money" color="amber" /><MiniTrend title="管道金额" series={data.weekly.trends.pipeline} format="money" color="violet" /><MiniTrend title="任务完成" series={data.weekly.trends.tasks} color="green" /><MiniTrend title="阻塞任务" series={data.weekly.trends.blocked} color="red" /></div></div> : null}
+    {tab === 'execution' ? <div className="analytics-view"><div className="analytics-grid two"><MiniBars title="任务状态" data={data.execution.taskStatus} /><MiniBars title="Agent 负载" data={data.execution.agentLoad} /><MiniBars title="审批风险" data={data.execution.risk} /><MiniBars title="交付物状态" data={data.execution.delivery} /><MiniBars title="故障等级" data={data.execution.failures} /></div></div> : null}
+  </section>;
+}
+
+function DistributionBars({ title, data }: { title: string; data: Record<string, number> }) {
+  const entries = Object.entries(data || {}).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...entries.map(([, v]) => v));
+  if (!entries.length) return (
+    <section className="panel">
+      <PanelHeader title={title} />
+      <EmptyState text="暂无数据" />
+    </section>
+  );
+  return (
+    <section className="panel">
+      <PanelHeader title={title} hint={`${entries.length} 类`} />
+      <div className="ops-bars">
+        {entries.map(([label, value]) => (
+          <div className="ops-bar-row" key={label}>
+            <div className="ops-bar-meta">
+              <span>{labelFromSnake(label)}</span>
+              <strong>{value}</strong>
+            </div>
+            <div className="ops-bar-track">
+              <div className="ops-bar-fill" style={{ width: `${Math.max(6, (value / max) * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TrendChart({ trend }: { trend: Array<{ day: string; tasks: number; leads: number }> }) {
+  const max = Math.max(1, ...trend.flatMap((d) => [d.tasks, d.leads]));
+  if (!trend.length) {
+    return (
+      <section className="panel" style={{ gridColumn: '1 / -1' }}>
+        <PanelHeader title="近 14 日趋势" />
+        <EmptyState text="还没有足够的时间序列数据" />
+      </section>
+    );
+  }
+  return (
+    <section className="panel" style={{ gridColumn: '1 / -1' }}>
+      <PanelHeader title="近 14 日趋势" hint="任务新增 vs 线索新增" />
+      <div className="ops-trend">
+        {trend.map((d) => (
+          <div className="ops-trend-col" key={d.day} title={`${d.day}: 任务 ${d.tasks} / 线索 ${d.leads}`}>
+            <div className="ops-trend-bars">
+              <div className="ops-trend-bar tasks" style={{ height: `${Math.max(4, (d.tasks / max) * 100)}%` }} />
+              <div className="ops-trend-bar leads" style={{ height: `${Math.max(4, (d.leads / max) * 100)}%` }} />
+            </div>
+            <span>{d.day.slice(5)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="ops-legend">
+        <span><i className="dot tasks" /> 任务</span>
+        <span><i className="dot leads" /> 线索</span>
+      </div>
+    </section>
+  );
+}
+
+function OpsInsightsPage() {
+  const query = useQuery({
+    queryKey: ['ops-insights'],
+    queryFn: () => apiGet<OpsInsightsResponse>('/api/web/ops-insights'),
+    refetchInterval: 30_000
+  });
+  const sync = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; summary: AnyRecord }>('/api/web/feishu/sync', {}),
+  });
+
+  if (query.isLoading) return <LoadingPanel />;
+  if (query.isError) return <ErrorPanel error={query.error} />;
+  const data = query.data;
+  if (!data) return <LoadingPanel />;
+
+  return (
+    <div className="dashboard-grid ops-insights">
+      <section className="panel" style={{ gridColumn: '1 / -1' }}>
+        <PanelHeader title="经营分析驾驶舱" hint={formatTime(data.generatedAt)} />
+        <div className="ops-headline">{data.headline}</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <button type="button" className="secondary-button" disabled={sync.isPending} onClick={() => sync.mutate()}>
+            {sync.isPending ? '同步飞书中…' : '同步到飞书台账'}
+          </button>
+          {data.feishu.baseUrl ? (
+            <a className="secondary-button" href={data.feishu.baseUrl} target="_blank" rel="noreferrer">打开飞书 Base</a>
+          ) : null}
+          <button type="button" className="secondary-button" onClick={() => void query.refetch()}>刷新分析</button>
+        </div>
+        {sync.data?.summary ? (
+          <div className="json-panel" style={{ marginTop: 12 }}>
+            飞书同步完成：任务 {(sync.data.summary as any).counts?.task?.attempted ?? 0} · 线索 {(sync.data.summary as any).counts?.lead?.attempted ?? 0} · 审批 {(sync.data.summary as any).counts?.approval?.attempted ?? 0}
+          </div>
+        ) : null}
+        {sync.error ? <ErrorPanel error={sync.error} /> : null}
+      </section>
+
+      <AnalyticsHub />
+
+      <section className="panel" style={{ gridColumn: '1 / -1' }}>
+        <PanelHeader title="今日决策层" hint="实时业务库" />
+        <p className="analytics-layer-note">下方保留的是实时任务、审批与 CRM 行动面；上方分析中心用于看整体趋势、局部经营与复盘。</p>
+      </section>
+
+      <div className="metric-grid wide" style={{ gridColumn: '1 / -1' }}>
+        {data.kpis.map((kpi) => (
+          <div key={kpi.key} className={`metric-card ${kpi.tone === 'danger' ? 'danger' : kpi.tone === 'warn' ? 'active' : 'done'}`}>
+            <span>{kpi.label}</span>
+            <strong>{kpi.value}</strong>
+            <small>{kpi.hint}</small>
+          </div>
+        ))}
+      </div>
+
+      <TrendChart trend={data.trend} />
+      <DistributionBars title="任务状态分布" data={data.distributions.taskStatus} />
+      <DistributionBars title="任务优先级" data={data.distributions.taskPriority} />
+      <DistributionBars title="执行 Agent" data={data.distributions.taskOwner} />
+      <DistributionBars title="线索状态" data={data.distributions.leadStatus} />
+      <DistributionBars title="线索来源" data={data.distributions.leadSource} />
+
+      <section className="panel">
+        <PanelHeader title="优先行动" hint="先处理这些最值钱" />
+        {data.actions.length ? (
+          <div className="ops-actions">
+            {data.actions.map((action, idx) => (
+              <a key={`${action.kind}-${idx}`} className="ops-action" href={action.href}>
+                <div>
+                  <strong>{action.title}</strong>
+                  <small>{action.detail}</small>
+                </div>
+                <span>{labelFromSnake(action.kind)}</span>
+              </a>
+            ))}
+          </div>
+        ) : <EmptyState text="当前没有紧急行动项" />}
+      </section>
+
+      <section className="panel">
+        <PanelHeader title="阻塞 / 失败任务" />
+        {data.lists.blockedTasks.length ? (
+          <SimpleList
+            items={data.lists.blockedTasks}
+            primary={(item) => String(item.title || item.id)}
+            meta={(item) => `${String(item.status || '')} · ${String(item.owner_agent || '')}`}
+            href={(item) => item.id ? `/app/tasks?task=${encodeURIComponent(String(item.id))}` : null}
+          />
+        ) : <EmptyState text="没有阻塞任务" />}
+      </section>
+
+      <section className="panel">
+        <PanelHeader title="高分线索" />
+        {data.lists.topScoredLeads.length ? (
+          <SimpleList
+            items={data.lists.topScoredLeads}
+            primary={(item) => String(item.name || item.id)}
+            meta={(item) => `分数 ${String(item.score_total ?? '-')} · ${String(item.source || '')}`}
+            href={() => '/app/crm'}
+          />
+        ) : <EmptyState text="还没有可评分线索" />}
+      </section>
+
+      <section className="panel">
+        <PanelHeader title="逾期跟进" />
+        {data.lists.overdueFollowUps.length ? (
+          <SimpleList
+            items={data.lists.overdueFollowUps}
+            primary={(item) => String(item.title || item.name || item.id)}
+            meta={(item) => String(item.status || 'overdue')}
+            href={() => '/app/crm'}
+          />
+        ) : <EmptyState text="没有逾期跟进" />}
+      </section>
+
+      <section className="panel" style={{ gridColumn: '1 / -1' }}>
+        <PanelHeader title="飞书经营台账" hint="表格 + 视图已就绪，仪表盘受飞书 OpenAPI 限制需在 Base 内手动加图表" />
+        <div className="json-panel" style={{ lineHeight: 1.7 }}>
+          已同步表：{Object.values(data.feishu.tables).join(' / ')}。
+          建议在飞书 Base 里用这些视图看经营面：
+          <b>进行中任务 / 阻塞任务 / 高分线索 / 待审批</b>。
+          {data.feishu.baseUrl ? (
+            <>
+              <br />
+              <a href={data.feishu.baseUrl} target="_blank" rel="noreferrer">打开飞书 Base 做图表</a>
+              （飞书 OpenAPI 目前不能远程创建仪表盘组件，但网站这里已经给你完整 KPI 与可视化。）
+            </>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const panel = usePanelParam();
   const query = useQuery({
@@ -2418,6 +3290,7 @@ function SettingsPage() {
 
   return (
     <div className="dashboard-grid">
+      <FeishuLedgerCard />
       {panel === 'agents' || panel === 'agent' ? <MiniAppActionPanel kind="agent" /> : null}
       {panel === 'knowledge' ? <MiniAppActionPanel kind="knowledge" /> : null}
       {Object.entries(settings).map(([key, value]) => (
@@ -2482,6 +3355,27 @@ function CommandInput() {
     }
   });
 
+  useEffect(() => {
+    const handlePrefill = (event: Event) => {
+      const detail = (event as CustomEvent<string | { text: string; autoRun?: boolean }>).detail;
+      const commandText = typeof detail === 'string' ? detail : detail?.text;
+      const autoRun = typeof detail === 'object' && detail !== null ? Boolean(detail.autoRun) : false;
+      if (!commandText) return;
+      setText(commandText);
+      window.requestAnimationFrame(() => {
+        const input = document.getElementById('chief-command-input');
+        input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (autoRun) {
+          if (!command.isPending) command.mutate(commandText.trim());
+        } else {
+          input?.focus();
+        }
+      });
+    };
+    window.addEventListener('tele-opc:prefill-command', handlePrefill);
+    return () => window.removeEventListener('tele-opc:prefill-command', handlePrefill);
+  }, [command]);
+
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!text.trim() || command.isPending) return;
@@ -2498,10 +3392,14 @@ function CommandInput() {
       <form onSubmit={submit}>
         <Command size={19} />
         <input
+          id="chief-command-input"
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="直接给 Chief Agent 下命令，例如：帮我整理今天所有 blocked 任务，并给出下一步"
+          placeholder="告诉 Chief Agent 你要达成什么目标…"
+          aria-label="给 Chief Agent 下达指令"
+          autoComplete="off"
         />
+        <kbd className="command-shortcut">⌘K</kbd>
         <button type="submit" disabled={command.isPending}>
           {command.isPending ? '执行中' : <><Send size={16} />发送</>}
         </button>
@@ -2651,85 +3549,6 @@ function TraceDetail({ detail }: { detail?: { run: AgentRunRecord; toolCalls: An
   );
 }
 
-function SimpleList({
-  items,
-  primary,
-  meta
-}: {
-  items: AnyRecord[] | string[];
-  primary: (item: any) => string;
-  meta?: (item: any) => string;
-}) {
-  if (!items.length) return <EmptyState text="暂无数据" />;
-  return (
-    <div className="simple-list">
-      {items.map((item, index) => (
-        <article key={typeof item === 'object' && item?.id ? item.id : index}>
-          <strong title={primary(item)}>{primary(item)}</strong>
-          {meta ? <span>{meta(item)}</span> : null}
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function PanelHeader({ title, hint }: { title: string; hint?: string }) {
-  return (
-    <header className="panel-header">
-      <h2>{title}</h2>
-      {hint ? <span>{hint}</span> : null}
-    </header>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const tone = status.includes('blocked') || status.includes('failed') || status.includes('approval')
-    ? 'danger'
-    : status.includes('running') || status.includes('queued')
-      ? 'active'
-      : status.includes('done') || status.includes('approved')
-        ? 'done'
-        : 'neutral';
-  return <span className={`status-pill ${tone}`}>{status}</span>;
-}
-
-function HealthPill({ label, ok }: { label: string; ok?: boolean }) {
-  return (
-    <span className={`health-pill ${ok ? 'ok' : 'bad'}`}>
-      {ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-      {label}
-    </span>
-  );
-}
-
-function LoadingPanel() {
-  return (
-    <section className="panel loading-panel">
-      <Activity className="spin" size={22} />
-      <span>加载控制台数据</span>
-    </section>
-  );
-}
-
-function ErrorPanel({ error }: { error: unknown }) {
-  return (
-    <section className="panel error-panel">
-      <XCircle size={22} />
-      <strong>数据加载失败</strong>
-      <span>{error instanceof Error ? error.message : 'unknown error'}</span>
-    </section>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="empty-state">
-      <Search size={18} />
-      <span>{text}</span>
-    </div>
-  );
-}
-
 function useTelegramMiniApp() {
   useEffect(() => {
     const webApp = (window as any).Telegram?.WebApp;
@@ -2775,41 +3594,3 @@ function useRoute(): [RouteId, (route: RouteId) => void] {
   return [route, setRoute];
 }
 
-function truncateText(value: unknown, maxLength: number) {
-  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
-}
-
-function isMiniPanelKind(value: string): value is MiniPanelKind {
-  return [
-    'ppt',
-    'crm',
-    'mail',
-    'finance',
-    'financeImport',
-    'agent',
-    'artifact',
-    'voice',
-    'screenshot',
-    'knowledge'
-  ].includes(value);
-}
-
-function miniPanelFromPath(): MiniPanelKind | null {
-  const segment = window.location.pathname.replace(/^\/app\/mini\/?/, '').split('/')[0];
-  if (!segment) return null;
-  const normalized = segment === 'finance-import' ? 'financeImport' : segment;
-  return isMiniPanelKind(normalized) ? normalized : null;
-}
-
-function miniPanelHref(kind: MiniPanelKind) {
-  const slug = kind === 'financeImport' ? 'finance-import' : kind;
-  return `/app/mini/${slug}`;
-}
-
-function routeFromPath(): RouteId {
-  const segment = window.location.pathname.replace(/^\/app\/?/, '').split('/')[0] as RouteId;
-  if (segment === 'deliverables') return 'deliverables';
-  return navItems.some((item) => item.id === segment) ? segment : 'mission';
-}
