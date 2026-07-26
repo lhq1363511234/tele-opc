@@ -1,6 +1,8 @@
 import { getAgentDefinition, listAgentDefinitions } from '../agents/registry.js';
 import type { AgentRunResult, AgentRunner } from '../ai/agentRunner.js';
 import { buildCoreAgentTools } from '../ai/agentTools.js';
+import { buildCapabilityTools } from '../ai/capabilityTools.js';
+import { buildExternalActionTools } from '../ai/externalActionTools.js';
 import { systemPromptForAgent } from '../ai/agentPrompts.js';
 import { isBrowserDashboardRequest, parseBrowserInstruction } from '../browser/browserIntake.js';
 import { isCalendarDashboardRequest, parseCalendarInstruction } from '../calendar/calendarIntake.js';
@@ -253,6 +255,22 @@ export class ChiefOfStaff {
     private readonly agentRunner: AgentRunner | null = null,
     private readonly prospectingConnector: ProspectingSourceConnector = new PublicSourceProspectingConnector()
   ) {}
+
+  /** Feishu credentials for external action tools, read once from env. */
+  private get externalActionOptions() {
+    const appId = process.env.APPOS_FEISHU_APP_ID ?? '';
+    const appSecret = process.env.APPOS_FEISHU_APP_SECRET ?? '';
+    const appToken = process.env.APPOS_FEISHU_BASE_APP_TOKEN ?? '';
+    if (!appId || !appSecret || !appToken) return {};
+    return {
+      feishu: {
+        appId,
+        appSecret,
+        appToken,
+        baseUrl: process.env.APPOS_FEISHU_OPEN_BASE_URL || undefined
+      }
+    };
+  }
 
   async handleText(text: string | undefined, context: BrainContext) {
     const intake = intakeMessage(text);
@@ -1512,7 +1530,12 @@ export class ChiefOfStaff {
           contextPack: runtimeState,
           runtimeState: runtimeState.runtimeState
         },
-        tools: buildCoreAgentTools(this.repos, { chatId: context.chatId }),
+        tools: [
+          ...buildCoreAgentTools(this.repos, { chatId: context.chatId }),
+          ...buildCapabilityTools(this.repos, { taskId }),
+          ...buildExternalActionTools(this.repos, { ...this.externalActionOptions, taskId })
+        ],
+        maxToolRounds: 5,
         metadata: {
           source: 'telegram',
           sourceMessageId: context.originMessageId,

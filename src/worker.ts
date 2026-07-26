@@ -8,6 +8,8 @@ import { CampaignEmailSender } from './email/campaignEmailSender.js';
 import { deckInputFromPublicBrief, slideDeckSpecFromAgentContent } from './deliverables/slideDeckSpec.js';
 import { AgentRunner } from './ai/agentRunner.js';
 import { systemPromptForAgent } from './ai/agentPrompts.js';
+import { buildCapabilityTools } from './ai/capabilityTools.js';
+import { buildExternalActionTools, runApprovedAction } from './ai/externalActionTools.js';
 import { createModelProviderFromConfig } from './ai/modelProvider.js';
 import { logger } from './logger.js';
 import { BullMqTaskDispatcher, parseRedisConnection, taskQueueName, type TaskJobData } from './queue/taskQueue.js';
@@ -38,6 +40,16 @@ const feishuMirror = buildFeishuMirror({
   baseUrl: config.feishu.openBaseUrl
 });
 const ledgerSync = new LedgerSync(repos, feishuMirror);
+const externalActionOptions = config.feishu.appId && config.feishu.appSecret && config.feishu.baseAppToken
+  ? {
+      feishu: {
+        appId: config.feishu.appId,
+        appSecret: config.feishu.appSecret,
+        appToken: config.feishu.baseAppToken,
+        baseUrl: config.feishu.openBaseUrl
+      }
+    }
+  : {};
 let ledgerSyncRunning = false;
 let ledgerSyncTimer: NodeJS.Timeout | null = null;
 
@@ -110,7 +122,9 @@ const worker = new Worker<TaskJobData>(
       });
       await notifyTaskLifecycle(taskId, [`开始执行：${task.title}`]);
 
-      const result = task.owner_agent === 'browser'
+      const result = job.data.source === 'approval'
+        ? await approvedActionResultFor(task, job.data)
+        : task.owner_agent === 'browser'
         ? await browserResultFor(job.data.taskId)
         : task.planning_metadata.workflow === 'campaign_send'
           ? await campaignSendResultFor(task.planning_metadata)
@@ -205,6 +219,58 @@ process.on('SIGTERM', () => {
  * Scans the live market for where money is moving and ranks the fastest paths
  * to cash. Answers "哪个赛道现在挣钱快", which lead campaigns cannot.
  */
+/**
+ * Runs an external action that the owner just approved. Before this, approved
+ * approvals only produced a placeholder string, so emails and Feishu writes
+ * were never actually performed.
+ */
+async function approvedActionResultFor(task: TaskRecord, data: TaskJobData) {
+  if (!data.approvalId) {
+    return foundationResultFor(data, task.owner_agent, task.planning_metadata);
+  }
+  const approval = await repos.getApproval(data.approvalId);
+  if (!approval) return `找不到审批 ${data.approvalId}，没有执行任何动作。`;
+
+  const payload = (approval.payload ?? {}) as Record<string, unknown>;
+  const toolName = typeof payload.toolName === 'string' ? payload.toolName : approval.action_type;
+  const outcome = await runApprovedAction(toolName, payload, externalActionOptions);
+
+  await repos.audit({
+    actorType: 'system',
+    action: outcome.ok ? 'external_action_executed' : 'external_action_failed',
+    entityType: 'approval',
+    entityId: approval.id,
+    metadata: { toolName, taskId: task.id, outcome }
+  });
+
+  if (!outcome.ok) {
+    return [
+      `外部动作执行失败：${toolName}`,
+      `审批：${approval.id}`,
+      `原因：${String(outcome.error ?? 'unknown')}`
+    ].join('\n');
+  }
+
+  if (toolName === 'send_email') {
+    return [
+      '邮件已真实发出。',
+      `收件人：${Array.isArray(outcome.to) ? outcome.to.join(', ') : String(outcome.to ?? '')}`,
+      `主题：${String(outcome.subject ?? '')}`,
+      outcome.messageId ? `Message-ID：${String(outcome.messageId)}` : ''
+    ].filter(Boolean).join('\n');
+  }
+
+  if (toolName === 'write_feishu_table') {
+    return [
+      '已写入飞书多维表格。',
+      `表：${String(outcome.table ?? '')}`,
+      `写入行数：${String(outcome.written ?? 0)}`
+    ].join('\n');
+  }
+
+  return `外部动作已执行：${toolName}`;
+}
+
 async function marketScanResultFor(task: TaskRecord) {
   const metadata = task.planning_metadata as Record<string, unknown>;
   const goal = typeof metadata.goal === 'string' ? metadata.goal : task.description ?? task.title;
@@ -448,23 +514,6 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
     .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
     .slice(-4);
 
-  const context: Record<string, unknown> = {};
-
-  if (['crm', 'prospecting', 'email', 'quote'].includes(task.owner_agent)) {
-    const { total, leads } = await repos.searchLeads({ limit: 25, offset: 0 }).catch(() => ({ total: 0, leads: [] as Array<Record<string, unknown>> }));
-    context.crm = {
-      totalLeads: total,
-      leads: (leads as Array<Record<string, unknown>>).map((lead) => ({
-        id: lead.id,
-        name: lead.name,
-        organization: lead.organization_name,
-        email: lead.email ?? null,
-        phone: lead.phone ?? null,
-        notes: typeof lead.notes === 'string' ? lead.notes.slice(0, 700) : null
-      }))
-    };
-  }
-
   const persona = await personaVoiceBlock();
 
   const result = await contentAgentRunner.run({
@@ -484,39 +533,51 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
         ? ['前面几步已完成的结果：', ...doneSiblings.map((item) => `- ${item.title}：${(item.result ?? '').slice(0, 500)}`)].join('\n')
         : '',
       '',
-      context.crm
-        ? ['可用的真实 CRM 数据（共 ' + String((context.crm as { totalLeads: number }).totalLeads) + ' 条线索，下面是前 25 条）：', JSON.stringify(context.crm, null, 0).slice(0, 6000)].join('\n')
-        : '',
+      '你有这些工具，遇到不知道的事就去查，不要靠猜：',
+      '- search_web / read_url：查公开信息、行情、报价、公司资料',
+      '- search_crm：查我们自己数据库里已有的线索',
+      '- save_lead：把真实找到的新线索写进 CRM',
+      '- save_deliverable：把长报告或要复用的产出存成交付物',
+      '- send_email / write_feishu_table：真实对外动作，会先拦下来等老板批准，所以要写最终版本，不要写占位内容',
       '',
       '硬性要求：',
+      '- 需要外部事实（价格、市场、某家公司情况）时必须先用工具查，查到什么说什么',
       '- 直接给结论和产出，不要写"我将会…"这类计划体',
       '- 引用具体的公司名、数字、渠道，不允许泛泛而谈',
-      '- 如果缺少必要信息（比如没有联系方式），明确说缺什么、下一步怎么补，不要编造',
-      '- 如果这一步必须由本人亲自做（付款、签字、实名收款），明确标出「需要你本人操作」',
-      '- 300 字以内，中文，不要客套'
+      '- 缺少必要信息就明确说缺什么、下一步怎么补，不要编造',
+      '- 必须由本人亲自做的动作（付款、签字、实名收款）单独标出「需要你本人操作」',
+      '- 最后给人看的回复控制在 300 字以内，中文，不要客套'
     ].filter(Boolean).join('\n'),
     context: {
       ownerAgent: task.owner_agent,
-      parentTaskId: parent?.id ?? null,
-      ...context
+      parentTaskId: parent?.id ?? null
     },
+    tools: [
+      ...buildCapabilityTools(repos, { taskId: task.id }),
+      ...buildExternalActionTools(repos, { ...externalActionOptions, taskId: task.id })
+    ],
+    maxToolRounds: 6,
     metadata: {
       workflow: 'operating_step',
       source: 'worker_operating_executor',
       parentTaskId: parent?.id ?? null
-    },
-    maxToolRounds: 0
+    }
   });
 
   const text = result.content.trim();
   if (!text) return foundationResultFor(data, task.owner_agent, task.planning_metadata);
-  return [`${agent.displayName}：`, '', text].join('\n');
+
+  const usedTools = result.toolCalls.filter((call) => call.status !== 'failed');
+  const toolTrace = usedTools.length
+    ? `\n\n（调用了 ${usedTools.length} 次工具：${[...new Set(usedTools.map((call) => call.name))].join('、')}）`
+    : '';
+  return [`${agent.displayName}：`, '', text].join('\n') + toolTrace;
 }
 
 function foundationResultFor(data: TaskJobData, ownerAgent: string, metadata: Record<string, unknown>) {
   const agent = getAgentDefinition(ownerAgent);
   if (data.source === 'approval') {
-    return `V3 Agent OS worker recorded approved finance-gated action ${data.actionType ?? 'finance_action'} for ${agent.displayName}. Connector execution will be implemented in later phases.`;
+    return `V3 Agent OS worker recorded approved action ${data.actionType ?? 'finance_action'} for ${agent.displayName}.`;
   }
   if (metadata.v3 === true) {
     const workflow = typeof metadata.workflow === 'string' ? metadata.workflow : 'v3_workflow';

@@ -307,7 +307,13 @@ export class AgentRunner {
     const actionType = typeof toolCall.arguments.action === 'string'
       ? toolCall.arguments.action
       : toolCall.name;
-    const target = typeof toolCall.arguments.target === 'string' ? toolCall.arguments.target : undefined;
+    const target = typeof toolCall.arguments.target === 'string'
+      ? toolCall.arguments.target
+      : typeof toolCall.arguments.to === 'string'
+        ? toolCall.arguments.to
+        : typeof toolCall.arguments.table === 'string'
+          ? toolCall.arguments.table
+          : undefined;
     const payloadSummary = typeof toolCall.arguments.payloadSummary === 'string'
       ? toolCall.arguments.payloadSummary
       : undefined;
@@ -318,7 +324,10 @@ export class AgentRunner {
       prompt: [
         `AI Agent 请求外部写入：${actionType}`,
         target ? `目标：${target}` : '',
-        payloadSummary ? `内容：${payloadSummary}` : ''
+        payloadSummary ? `内容：${payloadSummary}` : '',
+        // Show enough of the real payload that the owner can judge it without
+        // digging into the database.
+        describeToolArguments(toolCall.arguments)
       ].filter(Boolean).join('\n'),
       payload: {
         source: 'agent_tool_call',
@@ -326,11 +335,25 @@ export class AgentRunner {
         agentId: request.agentId,
         toolName: toolCall.name,
         input: toolCall.arguments,
+        toolInput: toolCall.arguments,
         target,
         payloadSummary
       }
     });
   }
+}
+
+/** Renders the fields an owner needs to judge an external action. */
+function describeToolArguments(args: Record<string, unknown>): string {
+  const lines: string[] = [];
+  if (typeof args.subject === 'string') lines.push(`主题：${args.subject}`);
+  if (typeof args.body === 'string') {
+    const body = args.body.length > 600 ? `${args.body.slice(0, 600)}…` : args.body;
+    lines.push(`正文：\n${body}`);
+  }
+  if (Array.isArray(args.rows)) lines.push(`行数：${args.rows.length}`);
+  if (typeof args.reason === 'string') lines.push(`理由：${args.reason}`);
+  return lines.join('\n');
 }
 
 function toChatToolDefinition(tool: AgentTool): ChatToolDefinition {
