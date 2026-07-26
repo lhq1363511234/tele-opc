@@ -3744,6 +3744,26 @@ export class Repositories {
     return result.rows as ASelfPermissionRuleRecord[];
   }
 
+  async updateASelfPermissionRule(id: string, params: {
+    automationMode?: string;
+    requiresApproval?: boolean;
+    description?: string;
+  }) {
+    const result = await this.pool.query(
+      `
+      UPDATE a_self_permission_rules
+      SET automation_mode = COALESCE($2, automation_mode),
+          requires_approval = COALESCE($3, requires_approval),
+          description = COALESCE($4, description),
+          updated_at = now()
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id, params.automationMode ?? null, params.requiresApproval ?? null, params.description ?? null]
+    );
+    return (result.rows[0] ?? null) as ASelfPermissionRuleRecord | null;
+  }
+
   async listASelfOpcRuns(limit = 30) {
     const result = await this.pool.query(
       `SELECT * FROM a_self_opc_runs ORDER BY created_at DESC LIMIT $1`,

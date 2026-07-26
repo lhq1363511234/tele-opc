@@ -38,6 +38,13 @@ import { AgentNetwork } from './components/AgentNetwork';
 import { PaperclipGovernance } from './components/PaperclipGovernance';
 import { ASelfConsole } from './components/ASelfConsole';
 import { QuickEntry, type QuickEntryConfig } from './components/QuickEntry';
+import { DeckStudio } from './components/studio/DeckStudio';
+import { MailStudio } from './components/studio/MailStudio';
+import { CrmImportStudio } from './components/studio/CrmImportStudio';
+import { FinanceImportStudio } from './components/studio/FinanceImportStudio';
+import { FinanceActionStudio } from './components/studio/FinanceActionStudio';
+import { AgentSettingsStudio } from './components/studio/AgentSettingsStudio';
+import { KnowledgeStudio } from './components/studio/KnowledgeStudio';
 import { ApiError, apiGet, apiPost, apiPut, getWebConsoleDevToken, setWebConsoleDevToken } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
 import {
@@ -1554,253 +1561,14 @@ function telegramRuntimeSnapshot() {
   };
 }
 
-type PptGuidedStep = {
-  id: 'topic' | 'audience' | 'purpose' | 'pages' | 'style' | 'materials';
-  label: string;
-  question: string;
-  placeholder: string;
-  chips?: string[];
-  multiline?: boolean;
-};
-
-const pptGuidedSteps: PptGuidedStep[] = [
-  {
-    id: 'topic',
-    label: '主题',
-    question: '这份 PPT 要讲什么？',
-    placeholder: '例如：旺仔牛奶面向中国青少年的宣传方案'
-  },
-  {
-    id: 'audience',
-    label: '受众',
-    question: '给谁看？',
-    placeholder: '例如：中国青少年用户、家长、渠道商、投资人',
-    chips: ['中国青少年用户', '家长和学生', '品牌客户', '投资人', '内部团队']
-  },
-  {
-    id: 'purpose',
-    label: '目标',
-    question: '看完之后希望对方做什么？',
-    placeholder: '例如：理解产品卖点并愿意尝试购买',
-    chips: ['品牌宣传', '销售提案', '融资路演', '内部汇报', '活动招商']
-  },
-  {
-    id: 'pages',
-    label: '页数',
-    question: '大概做多少页？',
-    placeholder: '例如：10页',
-    chips: ['6页', '8页', '10页', '12页', '15页']
-  },
-  {
-    id: 'style',
-    label: '风格',
-    question: '希望是什么视觉和表达风格？',
-    placeholder: '例如：年轻、明亮、有记忆点，不要太商务',
-    chips: ['年轻活力', '简洁商务', '科技感', '咨询公司风', '品牌营销风']
-  },
-  {
-    id: 'materials',
-    label: '素材',
-    question: '有没有必须包含的资料、卖点、链接或禁忌？',
-    placeholder: '可以粘贴资料、口号、产品卖点、参考链接；没有就写“暂无”',
-    multiline: true
-  }
-];
-
-function PptGuidedPanel() {
-  const [stepIndex, setStepIndex] = useState(0);
-  const [values, setValues] = useState<Record<PptGuidedStep['id'], string>>({
-    topic: '',
-    audience: '',
-    purpose: '',
-    pages: '10页',
-    style: '品牌营销风',
-    materials: ''
-  });
-  const queryClient = useQueryClient();
-  const command = useMutation({
-    mutationFn: () => apiPost<WebCommandResponse>('/api/web/mini-app/submit', {
-      kind: 'ppt',
-      values,
-      text: buildPptGuidedCommand(values)
-    }),
-    onSuccess: (result) => {
-      void queryClient.invalidateQueries();
-      const webApp = (window as any).Telegram?.WebApp;
-      webApp?.HapticFeedback?.notificationOccurred?.('success');
-      webApp?.showPopup?.({
-        title: 'PPT 任务已创建',
-        message: result.task
-          ? '我已经创建任务卡。后续会按步骤执行，并在完成后生成可预览页面。'
-          : '请求已经提交，结果会显示在当前页面。',
-        buttons: [{ type: 'ok' }]
-      });
-    }
-  });
-  const current = pptGuidedSteps[stepIndex];
-  const canGoNext = stepIndex < pptGuidedSteps.length - 1;
-  const topicReady = values.topic.trim().length > 0;
-  const canSubmit = topicReady && !command.isPending;
-
-  const submitGuided = useCallback(() => {
-    if (!canSubmit) return;
-    command.mutate();
-  }, [canSubmit, command]);
-
-  useEffect(() => {
-    const webApp = (window as any).Telegram?.WebApp;
-    const mainButton = webApp?.MainButton;
-    if (!mainButton) return;
-
-    const onClick = () => {
-      if (canGoNext) {
-        setStepIndex((index) => Math.min(index + 1, pptGuidedSteps.length - 1));
-        return;
-      }
-      submitGuided();
-    };
-    mainButton.setText(canGoNext ? '下一步' : command.isPending ? '提交中...' : '生成 PPT 任务');
-    if (command.isPending) {
-      mainButton.showProgress?.();
-    } else {
-      mainButton.hideProgress?.();
-    }
-    mainButton.show();
-    mainButton.onClick(onClick);
-
-    return () => {
-      mainButton.offClick?.(onClick);
-      mainButton.hideProgress?.();
-      mainButton.hide();
-    };
-  }, [canGoNext, command.isPending, submitGuided]);
-
-  function updateValue(id: PptGuidedStep['id'], value: string) {
-    setValues((currentValues) => ({ ...currentValues, [id]: value }));
-  }
-
-  function nextStep() {
-    setStepIndex((index) => Math.min(index + 1, pptGuidedSteps.length - 1));
-  }
-
-  function previousStep() {
-    setStepIndex((index) => Math.max(index - 1, 0));
-  }
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (canGoNext) {
-      nextStep();
-      return;
-    }
-    submitGuided();
-  }
-
-  return (
-    <section className="panel mini-app-panel ppt-guided-panel">
-      <PanelHeader title="PPT 引导生成" hint="Telegram Mini App" />
-      <p>我会先把你的意图整理成任务合同，再交给 Content Agent 生成真实幻灯片内容，完成后给出可预览页面。</p>
-
-      <div className="ppt-guided-progress">
-        {pptGuidedSteps.map((step, index) => (
-          <button
-            key={step.id}
-            type="button"
-            className={index === stepIndex ? 'active' : index < stepIndex ? 'done' : ''}
-            onClick={() => setStepIndex(index)}
-          >
-            <span>{index + 1}</span>
-            {step.label}
-          </button>
-        ))}
-      </div>
-
-      <form className="ppt-guided-chat" onSubmit={submit}>
-        <div className="guided-bubble assistant">
-          <span>{current.label}</span>
-          <strong>{current.question}</strong>
-        </div>
-
-        <label className="guided-answer">
-          {current.multiline ? (
-            <textarea
-              value={values[current.id]}
-              onChange={(event) => updateValue(current.id, event.target.value)}
-              placeholder={current.placeholder}
-              rows={6}
-            />
-          ) : (
-            <input
-              value={values[current.id]}
-              onChange={(event) => updateValue(current.id, event.target.value)}
-              placeholder={current.placeholder}
-            />
-          )}
-        </label>
-
-        {current.chips?.length ? (
-          <div className="guided-chip-row">
-            {current.chips.map((chip) => (
-              <button key={chip} type="button" onClick={() => updateValue(current.id, chip)}>
-                {chip}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="ppt-guided-summary">
-          {pptGuidedSteps.map((step) => (
-            <article key={step.id}>
-              <span>{step.label}</span>
-              <strong>{values[step.id] || '待补充'}</strong>
-            </article>
-          ))}
-        </div>
-
-        <div className="mini-panel-actions">
-          <button type="button" className="secondary-button" onClick={previousStep} disabled={stepIndex === 0 || command.isPending}>
-            上一步
-          </button>
-          {canGoNext ? (
-            <button type="submit" disabled={command.isPending}>下一步</button>
-          ) : (
-            <button type="submit" disabled={!canSubmit}>
-              {command.isPending ? '提交中...' : '生成 PPT 任务'}
-            </button>
-          )}
-          <small>{topicReady ? '提交后会进入有顺序的 PPT 任务生命周期。' : '至少先填写主题，其他信息可由 Agent 合理补全。'}</small>
-        </div>
-      </form>
-
-      {command.isError ? <ErrorPanel error={command.error} /> : null}
-      {command.isSuccess ? (
-        <p className="mini-submit-note">
-          已提交到 Tele-OPC。完成后会出现可预览交付物，不会把一整段代码刷到 Telegram 聊天里。
-        </p>
-      ) : null}
-      {command.data ? <TaskSubmissionCard response={command.data} /> : null}
-    </section>
-  );
-}
-
-function buildPptGuidedCommand(values: Record<PptGuidedStep['id'], string>) {
-  return [
-    '请做一份 PPT，并在最后生成可在 Telegram Mini App 中预览的网页版本。',
-    `主题：${values.topic || '未填写主题，请先根据上下文做合理假设'}`,
-    `受众：${values.audience || '未填写，请根据主题判断核心听众'}`,
-    `使用场景/目标：${values.purpose || '未填写，请以清晰表达价值并促成下一步行动为目标'}`,
-    `页数：${values.pages || '10页'}`,
-    `风格：${values.style || '清晰、有结构、适合移动端预览'}`,
-    `资料和要求：${values.materials || '暂无补充资料，请先生成 v0 幻灯片内容'}`,
-    '',
-    '工作要求：先分析这份 PPT 应该怎么做、应该由哪些 Agent 步骤完成，再按顺序执行；最终交付可预览的幻灯片页面，不要把内部提示词、任务字段或工作流字段写进幻灯片正文。'
-  ].join('\n');
-}
-
 function MiniAppActionPanel({ kind }: { kind: MiniPanelKind }) {
-  if (kind === 'ppt') {
-    return <PptGuidedPanel />;
-  }
+  if (kind === 'ppt') return <DeckStudio />;
+  if (kind === 'mail') return <MailStudio />;
+  if (kind === 'crm') return <CrmImportStudio />;
+  if (kind === 'financeImport') return <FinanceImportStudio />;
+  if (kind === 'finance') return <FinanceActionStudio />;
+  if (kind === 'agent') return <AgentSettingsStudio />;
+  if (kind === 'knowledge') return <KnowledgeStudio />;
 
   const config = miniPanelConfig(kind);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(
