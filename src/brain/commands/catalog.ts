@@ -1,0 +1,21 @@
+export const CORE_COMMANDS = [
+  '/start',
+  '/solve',
+  '/prospect',
+  '/quote',
+  '/content',
+  '/dev',
+  '/today',
+  '/crm',
+  '/finance',
+  '/calendar',
+  '/mail',
+  '/browser',
+  '/ops',
+  '/runs',
+  '/trace',
+  '/tasks',
+  '/approve',
+  '/reject',
+  '/retry'
+] as const;

@@ -117,7 +117,7 @@ const worker = new Worker<TaskJobData>(
             ? await leadCampaignResultFor(task)
           : task.planning_metadata.workflow === 'content'
               ? await contentStepResultFor(task)
-          : foundationResultFor(job.data, task.owner_agent, task.planning_metadata);
+          : await operatingStepResultFor(task, job.data);
       await repos.completeTask(taskId, result);
       await paperclipBridge.syncTaskResult(task, 'done', result).catch((error) => {
         logger.warn({ taskId, error: error instanceof Error ? error.message : String(error) }, 'Paperclip completion callback failed');
@@ -331,6 +331,90 @@ async function personaVoiceBlock() {
     `绝不做：${toList(profile.boundaries).join(' | ') || '未设定'}`,
     `价值排序：${toList(profile.values_order).join(' | ') || '未设定'}`
   ].join('\n');
+}
+
+/**
+ * Executes a normal operating subtask with the real model and real CRM data.
+ * Previously every non-content, non-campaign step fell through to
+ * foundationResultFor(), which returned a placeholder string and marked the
+ * task done without doing any work.
+ */
+async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
+  if (!contentAgentRunner) {
+    return foundationResultFor(data, task.owner_agent, task.planning_metadata);
+  }
+
+  const agent = getAgentDefinition(task.owner_agent);
+  const parent = task.parent_task_id ? await repos.getTask(task.parent_task_id) : null;
+  const siblings = parent ? await repos.listSubtasks(parent.id) : [];
+  const doneSiblings = siblings
+    .filter((item) => item.id !== task.id && item.result)
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+    .slice(-4);
+
+  const context: Record<string, unknown> = {};
+
+  if (['crm', 'prospecting', 'email', 'quote'].includes(task.owner_agent)) {
+    const { total, leads } = await repos.searchLeads({ limit: 25, offset: 0 }).catch(() => ({ total: 0, leads: [] as Array<Record<string, unknown>> }));
+    context.crm = {
+      totalLeads: total,
+      leads: (leads as Array<Record<string, unknown>>).map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        organization: lead.organization_name,
+        email: lead.email ?? null,
+        phone: lead.phone ?? null,
+        notes: typeof lead.notes === 'string' ? lead.notes.slice(0, 700) : null
+      }))
+    };
+  }
+
+  const persona = await personaVoiceBlock();
+
+  const result = await contentAgentRunner.run({
+    agentId: task.owner_agent,
+    systemPrompt: systemPromptForAgent(task.owner_agent),
+    taskId: task.id,
+    userText: [
+      persona,
+      '',
+      `你是 ${agent.displayName}，现在要真正执行下面这一步，不是描述你会怎么做。`,
+      '',
+      parent ? `总目标：${parent.description ?? parent.title}` : '',
+      `本步任务：${task.title}`,
+      task.description ? `任务说明：${task.description}` : '',
+      '',
+      doneSiblings.length
+        ? ['前面几步已完成的结果：', ...doneSiblings.map((item) => `- ${item.title}：${(item.result ?? '').slice(0, 500)}`)].join('\n')
+        : '',
+      '',
+      context.crm
+        ? ['可用的真实 CRM 数据（共 ' + String((context.crm as { totalLeads: number }).totalLeads) + ' 条线索，下面是前 25 条）：', JSON.stringify(context.crm, null, 0).slice(0, 6000)].join('\n')
+        : '',
+      '',
+      '硬性要求：',
+      '- 直接给结论和产出，不要写"我将会…"这类计划体',
+      '- 引用具体的公司名、数字、渠道，不允许泛泛而谈',
+      '- 如果缺少必要信息（比如没有联系方式），明确说缺什么、下一步怎么补，不要编造',
+      '- 如果这一步必须由本人亲自做（付款、签字、实名收款），明确标出「需要你本人操作」',
+      '- 300 字以内，中文，不要客套'
+    ].filter(Boolean).join('\n'),
+    context: {
+      ownerAgent: task.owner_agent,
+      parentTaskId: parent?.id ?? null,
+      ...context
+    },
+    metadata: {
+      workflow: 'operating_step',
+      source: 'worker_operating_executor',
+      parentTaskId: parent?.id ?? null
+    },
+    maxToolRounds: 0
+  });
+
+  const text = result.content.trim();
+  if (!text) return foundationResultFor(data, task.owner_agent, task.planning_metadata);
+  return [`${agent.displayName}：`, '', text].join('\n');
 }
 
 function foundationResultFor(data: TaskJobData, ownerAgent: string, metadata: Record<string, unknown>) {

@@ -1,0 +1,32 @@
+[Unit]
+Description=Paperclip AI Company Control Plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/paperclip
+EnvironmentFile=-/var/lib/paperclip/instances/default/.env
+Environment=PAPERCLIP_HOME=/var/lib/paperclip
+Environment=PAPERCLIP_SERVER_PORT=3101
+Environment=PORT=3101
+Environment=PATH=/opt/paperclip/runtime/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/opt/paperclip/runtime/node/bin/node /opt/paperclip/node_modules/paperclipai/dist/index.js run --data-dir /var/lib/paperclip --no-repair
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+Nice=10
+CPUQuota=100%
+MemoryMax=2G
+TasksMax=256
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/paperclip
+StandardOutput=append:/var/lib/paperclip/instances/default/logs/systemd.log
+StandardError=append:/var/lib/paperclip/instances/default/logs/systemd.log
+
+[Install]
+WantedBy=multi-user.target

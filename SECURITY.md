@@ -60,3 +60,13 @@ These actions should require approval:
 - Share files externally.
 
 Low-risk internal actions such as summarizing, drafting, classification, internal notes, and screenshots can be automated within configured permissions.
+
+
+## Web Console Access
+
+Production web console APIs under `/api/web/*` should not stay open.
+
+- `WEB_CONSOLE_AUTH_MODE=auto` (default): open in development/test, Telegram Mini App auth in production.
+- `WEB_CONSOLE_AUTH_MODE=telegram`: require valid owner `x-telegram-init-data`.
+- `WEB_CONSOLE_AUTH_MODE=open`: local-only emergency bypass.
+- Optional `WEB_CONSOLE_DEV_TOKEN` can be sent as `x-tele-opc-dev-token` for controlled debugging.

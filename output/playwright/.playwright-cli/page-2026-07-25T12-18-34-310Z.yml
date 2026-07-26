@@ -1,0 +1,6 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - heading "Tele-OPC Console" [level=1] [ref=e10]
+    - paragraph [ref=e11]: 控制台会直接打开。如果这里没有加载成功，请检查服务端状态或公网 HTTPS 连接。
+    - paragraph [ref=e12]: web_console_unauthorized
+    - button "刷新连接" [ref=e13] [cursor=pointer]

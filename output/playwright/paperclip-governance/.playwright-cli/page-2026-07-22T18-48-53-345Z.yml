@@ -1,0 +1,265 @@
+- generic [ref=f3e3]:
+  - button "关闭导航" [ref=f3e501] [cursor=pointer]
+  - complementary "主导航" [ref=f3e4]:
+    - generic [ref=f3e5]:
+      - generic [ref=f3e12]:
+        - strong [ref=f3e13]: Tele-OPC OS
+        - generic [ref=f3e14]: Operating Console
+      - button "关闭导航" [ref=f3e15] [cursor=pointer]
+    - generic [ref=f3e21]:
+      - strong [ref=f3e22]: 系统可执行
+      - generic [ref=f3e23]: 0 个 Agent 运行中
+    - navigation [ref=f3e24]:
+      - generic [ref=f3e25]:
+        - generic [ref=f3e26]: Command
+        - button "Mission Control" [ref=f3e27] [cursor=pointer]
+        - button "Paperclip 治理" [ref=f3e34] [cursor=pointer]
+        - button "Agents" [ref=f3e40] [cursor=pointer]
+        - button "Tasks" [ref=f3e45] [cursor=pointer]
+        - button "Mini App" [ref=f3e51] [cursor=pointer]
+      - generic [ref=f3e56]:
+        - generic [ref=f3e57]: Business
+        - button "CRM" [ref=f3e58] [cursor=pointer]
+        - button "Mail" [ref=f3e65] [cursor=pointer]
+        - button "Finance" [ref=f3e70] [cursor=pointer]
+        - button "Calendar" [ref=f3e75] [cursor=pointer]
+        - button "Browser" [ref=f3e79] [cursor=pointer]
+        - button "经营分析" [ref=f3e84] [cursor=pointer]
+      - generic [ref=f3e88]:
+        - generic [ref=f3e89]: System
+        - button "Dependencies" [ref=f3e90] [cursor=pointer]
+        - button "Settings" [ref=f3e95] [cursor=pointer]
+        - button "Mini App Debug" [ref=f3e100] [cursor=pointer]
+    - generic [ref=f3e104]:
+      - generic [ref=f3e105]: DB
+      - generic [ref=f3e110]: Redis
+      - generic [ref=f3e115]: ⌘K 快速指令
+  - main [ref=f3e116]:
+    - generic [ref=f3e117]:
+      - generic [ref=f3e118]:
+        - button "打开导航" [active] [ref=f3e119] [cursor=pointer]
+        - generic [ref=f3e121]:
+          - generic [ref=f3e122]: OPERATIONS / PAPERCLIP
+          - heading "Paperclip 治理" [level=1] [ref=f3e123]
+      - generic [ref=f3e124]:
+        - generic [ref=f3e125]: Live
+        - button "刷新全部数据" [ref=f3e127] [cursor=pointer]
+    - generic [ref=f3e133]:
+      - generic [ref=f3e134]:
+        - generic [ref=f3e135]: Chief Agent
+        - generic [ref=f3e139]: 低风险自动执行
+        - generic [ref=f3e140]: 财务/付款强审批
+      - generic [ref=f3e141]:
+        - textbox "给 Chief Agent 下达指令" [ref=f3e142]:
+          - /placeholder: 告诉 Chief Agent 你要达成什么目标…
+        - button "发送" [ref=f3e143] [cursor=pointer]
+    - generic [ref=f3e158]:
+      - generic [ref=f3e159]:
+        - generic [ref=f3e160]:
+          - generic [ref=f3e161]: PAPERCLIP CONTROL PLANE
+          - heading "Tele-OPC AI Company" [level=2] [ref=f3e166]
+          - paragraph [ref=f3e167]: 以 Paperclip 为公司治理与任务控制面，以 Tele-OPC 为执行、业务数据、飞书经营分析与多渠道交互数据面。
+          - generic [ref=f3e168]:
+            - generic [ref=f3e169]: 控制面已连接
+            - generic [ref=f3e171]: 数据更新 07/22 10:48
+        - generic [ref=f3e172]:
+          - button "刷新" [ref=f3e173] [cursor=pointer]
+          - button "创建公司任务" [ref=f3e179] [cursor=pointer]
+      - generic [ref=f3e181]:
+        - article [ref=f3e182]:
+          - generic [ref=f3e188]: 活跃目标
+          - strong [ref=f3e189]: "1"
+          - generic [ref=f3e190]: 1 个目标
+        - article [ref=f3e191]:
+          - generic [ref=f3e197]: 进行中项目
+          - strong [ref=f3e198]: "1"
+          - generic [ref=f3e199]: 1 个项目
+        - article [ref=f3e200]:
+          - generic [ref=f3e207]: AI 员工
+          - strong [ref=f3e208]: "1"
+          - generic [ref=f3e209]: 3 个已登记
+        - article [ref=f3e210]:
+          - generic [ref=f3e215]: 开放 Issue
+          - strong [ref=f3e216]: "0"
+          - generic [ref=f3e217]: 4 个总任务
+        - article [ref=f3e218]:
+          - generic [ref=f3e224]: 执行面任务
+          - strong [ref=f3e225]: "4"
+          - generic [ref=f3e226]: 已关联 Tele-OPC
+        - article [ref=f3e227]:
+          - generic [ref=f3e232]: 执行成功率
+          - strong [ref=f3e233]: 100%
+          - generic [ref=f3e234]: 3 完成 / 0 失败
+      - generic [ref=f3e235]:
+        - generic [ref=f3e236]:
+          - generic [ref=f3e237]:
+            - heading "公司目标" [level=2] [ref=f3e238]
+            - generic [ref=f3e239]: 从愿景到可执行结果
+          - article [ref=f3e241]:
+            - generic [ref=f3e247]:
+              - generic [ref=f3e248]:
+                - strong [ref=f3e249]: 构建可治理、可执行、可度量的 AI 公司操作系统
+                - generic [ref=f3e250]: active
+              - paragraph [ref=f3e251]: 统一公司目标、项目、AI 员工、任务、审批、预算、经营事实与飞书可视化，让每项工作从决策到执行再到经营复盘形成闭环。
+              - generic [ref=f3e252]: company · 更新于 07/22 10:00
+        - generic [ref=f3e253]:
+          - generic [ref=f3e254]:
+            - heading "项目组合" [level=2] [ref=f3e255]
+            - generic [ref=f3e256]: 目标的执行容器
+          - article [ref=f3e258]:
+            - generic [ref=f3e260]:
+              - generic [ref=f3e261]:
+                - strong [ref=f3e262]: Tele-OPC 智能经营执行平台
+                - generic [ref=f3e263]: in_progress
+              - paragraph [ref=f3e264]: Paperclip 负责组织治理、目标、Issue、Agent、预算与审计；Tele-OPC 负责 BullMQ 执行、Telegram/飞书/Web、Postgres 经营事实和业务自动化。
+              - generic [ref=f3e265]: 4 个 Paperclip 任务
+      - generic [ref=f3e266]:
+        - generic [ref=f3e267]:
+          - heading "AI 公司组织" [level=2] [ref=f3e268]
+          - generic [ref=f3e269]: 治理角色与执行适配器
+        - generic [ref=f3e270]:
+          - article [ref=f3e272]:
+            - generic [ref=f3e273]: R
+            - generic [ref=f3e274]:
+              - strong [ref=f3e275]: Reflection Coach
+              - generic [ref=f3e276]: Reflection Coach
+              - generic [ref=f3e277]: claude_local · paused
+            - generic [ref=f3e278]: paused
+          - article [ref=f3e280]:
+            - generic [ref=f3e281]: S
+            - generic [ref=f3e282]:
+              - strong [ref=f3e283]: Summarizer
+              - generic [ref=f3e284]: Summarizer
+              - generic [ref=f3e285]: claude_local · paused
+            - generic [ref=f3e286]: paused
+          - article [ref=f3e288]:
+            - generic [ref=f3e289]: T
+            - generic [ref=f3e290]:
+              - strong [ref=f3e291]: Tele-OPC Execution Gateway
+              - generic [ref=f3e292]: AI 公司执行与经营数据中枢
+              - generic [ref=f3e293]: http · idle
+            - generic [ref=f3e294]: idle
+      - generic [ref=f3e295]:
+        - generic [ref=f3e296]:
+          - generic [ref=f3e297]:
+            - heading "公司任务流" [level=2] [ref=f3e298]
+            - generic [ref=f3e299]: Paperclip Issue → Tele-OPC Worker
+          - generic [ref=f3e300]:
+            - generic [ref=f3e301]: 搜索 Paperclip Issue
+            - textbox "搜索 Paperclip Issue" [ref=f3e302]:
+              - /placeholder: 搜索编号、标题或说明
+        - generic [ref=f3e303]:
+          - generic [ref=f3e304]:
+            - generic [ref=f3e305]:
+              - strong [ref=f3e306]: 待执行
+              - generic [ref=f3e307]: "0"
+            - generic [ref=f3e308]: 暂无任务
+          - generic [ref=f3e314]:
+            - generic [ref=f3e315]:
+              - strong [ref=f3e316]: 执行中
+              - generic [ref=f3e317]: "0"
+            - generic [ref=f3e318]: 暂无任务
+          - generic [ref=f3e324]:
+            - generic [ref=f3e325]:
+              - strong [ref=f3e326]: 受阻
+              - generic [ref=f3e327]: "0"
+            - generic [ref=f3e328]: 暂无任务
+          - generic [ref=f3e334]:
+            - generic [ref=f3e335]:
+              - strong [ref=f3e336]: 已完成
+              - generic [ref=f3e337]: "4"
+            - generic [ref=f3e338]:
+              - button "TEL-1 优先级 high 验证 Paperclip × Tele-OPC 双向执行闭环 执行一次无副作用的集成验证：接收任务、进入 BullMQ、完成执行、回写 Paperclip，并记录真实的 paperclip_issue_received 与 paperclip_issue_do… Tele-OPC Execution Gateway done" [ref=f3e339] [cursor=pointer]:
+                - generic [ref=f3e340]:
+                  - generic [ref=f3e341]: TEL-1
+                  - generic "优先级 high" [ref=f3e342]
+                - strong [ref=f3e343]: 验证 Paperclip × Tele-OPC 双向执行闭环
+                - paragraph [ref=f3e344]: 执行一次无副作用的集成验证：接收任务、进入 BullMQ、完成执行、回写 Paperclip，并记录真实的 paperclip_issue_received 与 paperclip_issue_do…
+                - generic [ref=f3e345]:
+                  - generic [ref=f3e346]: Tele-OPC Execution Gateway
+                  - generic [ref=f3e350]: done
+              - button "TEL-4 优先级 medium E2E-4：同步等待与单次运行验收 验收标准：HTTP Adapter 等待 Tele-OPC 快任务完成后再返回；Paperclip 只产生一次 Heartbeat Run；Issue 最终 done；无桥接评论回环。 Tele-OPC Execution Gateway done" [ref=f3e351] [cursor=pointer]:
+                - generic [ref=f3e352]:
+                  - generic [ref=f3e353]: TEL-4
+                  - generic "优先级 medium" [ref=f3e354]
+                - strong [ref=f3e355]: E2E-4：同步等待与单次运行验收
+                - paragraph [ref=f3e356]: 验收标准：HTTP Adapter 等待 Tele-OPC 快任务完成后再返回；Paperclip 只产生一次 Heartbeat Run；Issue 最终 done；无桥接评论回环。
+                - generic [ref=f3e357]:
+                  - generic [ref=f3e358]: Tele-OPC Execution Gateway
+                  - generic [ref=f3e362]: done
+              - button "TEL-2 优先级 medium E2E-2：异步 Board Key 回写验证 验收标准：只创建一个 Tele-OPC 任务；Worker 完成后 Paperclip 状态直接变为 done；无 run ownership conflict；记录 received 与 done… Tele-OPC Execution Gateway done" [ref=f3e363] [cursor=pointer]:
+                - generic [ref=f3e364]:
+                  - generic [ref=f3e365]: TEL-2
+                  - generic "优先级 medium" [ref=f3e366]
+                - strong [ref=f3e367]: E2E-2：异步 Board Key 回写验证
+                - paragraph [ref=f3e368]: 验收标准：只创建一个 Tele-OPC 任务；Worker 完成后 Paperclip 状态直接变为 done；无 run ownership conflict；记录 received 与 done…
+                - generic [ref=f3e369]:
+                  - generic [ref=f3e370]: Tele-OPC Execution Gateway
+                  - generic [ref=f3e374]: done
+              - button "TEL-3 优先级 low E2E-3：单次 Heartbeat 静默状态同步 验收标准：Paperclip 仅触发一次 HTTP Heartbeat；Tele-OPC 仅创建一个任务；Worker 完成后状态为 done；不由桥接评论触发额外运行。 Tele-OPC Execution Gateway done" [ref=f3e375] [cursor=pointer]:
+                - generic [ref=f3e376]:
+                  - generic [ref=f3e377]: TEL-3
+                  - generic "优先级 low" [ref=f3e378]
+                - strong [ref=f3e379]: E2E-3：单次 Heartbeat 静默状态同步
+                - paragraph [ref=f3e380]: 验收标准：Paperclip 仅触发一次 HTTP Heartbeat；Tele-OPC 仅创建一个任务；Worker 完成后状态为 done；不由桥接评论触发额外运行。
+                - generic [ref=f3e381]:
+                  - generic [ref=f3e382]: Tele-OPC Execution Gateway
+                  - generic [ref=f3e386]: done
+      - generic [ref=f3e387]:
+        - generic [ref=f3e388]:
+          - generic [ref=f3e389]:
+            - heading "执行闭环" [level=2] [ref=f3e390]
+            - generic [ref=f3e391]: 来自真实经营事实
+          - generic [ref=f3e392]:
+            - generic [ref=f3e393]:
+              - generic [ref=f3e394]: 已接入
+              - strong [ref=f3e395]: "4"
+            - generic [ref=f3e398]:
+              - generic [ref=f3e399]: 已完成
+              - strong [ref=f3e400]: "3"
+            - generic [ref=f3e403]:
+              - generic [ref=f3e404]: 失败 / 阻塞
+              - strong [ref=f3e405]: "0"
+          - generic [ref=f3e407]:
+            - generic [ref=f3e408]: dev
+            - strong [ref=f3e411]: 3/4
+        - generic [ref=f3e412]:
+          - generic [ref=f3e413]:
+            - heading "最近控制面事件" [level=2] [ref=f3e414]
+            - generic [ref=f3e415]: Paperclip → Tele-OPC
+          - generic [ref=f3e416]:
+            - article [ref=f3e417]:
+              - generic [ref=f3e420]:
+                - strong [ref=f3e421]: Paperclip 任务完成
+                - generic [ref=f3e422]: E2E-4：同步等待与单次运行验收
+              - generic [ref=f3e423]: 07/22 10:12
+            - article [ref=f3e424]:
+              - generic [ref=f3e427]:
+                - strong [ref=f3e428]: Paperclip 任务接入
+                - generic [ref=f3e429]: E2E-4：同步等待与单次运行验收
+              - generic [ref=f3e430]: 07/22 10:12
+            - article [ref=f3e431]:
+              - generic [ref=f3e434]:
+                - strong [ref=f3e435]: Paperclip 任务完成
+                - generic [ref=f3e436]: E2E-3：单次 Heartbeat 静默状态同步
+              - generic [ref=f3e437]: 07/22 10:08
+            - article [ref=f3e438]:
+              - generic [ref=f3e441]:
+                - strong [ref=f3e442]: Paperclip 任务接入
+                - generic [ref=f3e443]: E2E-3：单次 Heartbeat 静默状态同步
+              - generic [ref=f3e444]: 07/22 10:08
+            - article [ref=f3e445]:
+              - generic [ref=f3e448]:
+                - strong [ref=f3e449]: Paperclip 任务完成
+                - generic [ref=f3e450]: E2E-2：异步 Board Key 回写验证
+              - generic [ref=f3e451]: 07/22 10:07
+            - article [ref=f3e452]:
+              - generic [ref=f3e455]:
+                - strong [ref=f3e456]: Paperclip 任务接入
+                - generic [ref=f3e457]: E2E-2：异步 Board Key 回写验证
+              - generic [ref=f3e458]: 07/22 10:07
+            - article [ref=f3e459]:
+              - generic [ref=f3e462]:
+                - strong [ref=f3e463]: Paperclip 任务接入
+                - generic [ref=f3e464]: 验证 Paperclip × Tele-OPC 双向执行闭环
+              - generic [ref=f3e465]: 07/22 10:04

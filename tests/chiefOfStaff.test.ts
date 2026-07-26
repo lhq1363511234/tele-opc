@@ -1332,7 +1332,7 @@ describe('ChiefOfStaff', () => {
 
     const reply = await brain.handleText('/today', context);
 
-    expect(reply).toContain('今日简报 v2');
+    expect(reply).toContain('今日简报 v3');
     expect(reply).toContain('待审批');
     expect(reply).toContain('客户跟进');
     expect(reply).toContain('财务提醒');
@@ -1342,7 +1342,7 @@ describe('ChiefOfStaff', () => {
     expect(reply).toContain('先处理待审批动作');
     expect(repos.briefings).toHaveLength(1);
     expect(repos.briefings[0].type).toBe('daily');
-    expect(repos.briefings[0].content).toContain('今日简报 v2');
+    expect(repos.briefings[0].content).toContain('今日简报 v3');
     expect(repos.briefings[0].metadata).toMatchObject({
       requestedByUserId: context.userId,
       version: 'v2'

@@ -5,6 +5,7 @@ import {
   workflowRunSchema
 } from '../contracts/schemas.js';
 import type { ApplicationEvent, BusinessContract, FailureEvent, WorkflowRun, WorkflowProvider } from '../contracts/types.js';
+import type { AppOSRepository } from '../../db/apposRepository.js';
 
 type PlannedRunInput = {
   workflowDefinitionId: string;
@@ -13,16 +14,134 @@ type PlannedRunInput = {
   input: Record<string, unknown>;
 };
 
-export class AppOSGatewayService {
+export interface AppOSStore {
+  createBusinessContract(contract: BusinessContract): Promise<BusinessContract> | BusinessContract;
+  getBusinessContract(id: string): Promise<BusinessContract | null> | BusinessContract | null;
+  storeEvent(event: ApplicationEvent): Promise<ApplicationEvent> | ApplicationEvent;
+  listEvents(): Promise<ApplicationEvent[]> | ApplicationEvent[];
+  listEventsForObject?(localObjectType: string, localObjectId: string): Promise<ApplicationEvent[]> | ApplicationEvent[];
+  createWorkflowRun(run: WorkflowRun): Promise<WorkflowRun> | WorkflowRun;
+  getWorkflowRun(id: string): Promise<WorkflowRun | null> | WorkflowRun | null;
+  updateWorkflowRun(run: WorkflowRun): Promise<WorkflowRun> | WorkflowRun;
+  createFailure(failure: FailureEvent): Promise<FailureEvent> | FailureEvent;
+  listFailures(): Promise<FailureEvent[]> | FailureEvent[];
+  nextRunSequence(): Promise<number> | number;
+}
+
+export class InMemoryAppOSStore implements AppOSStore {
   private contracts = new Map<string, BusinessContract>();
   private events: ApplicationEvent[] = [];
   private runs = new Map<string, WorkflowRun>();
   private failures: FailureEvent[] = [];
   private runSequence = 0;
 
-  createContract(payload: unknown) {
-    const contract = businessContractSchema.parse(payload);
+  createBusinessContract(contract: BusinessContract) {
     this.contracts.set(contract.id, contract);
+    return contract;
+  }
+
+  getBusinessContract(id: string) {
+    return this.contracts.get(id) ?? null;
+  }
+
+  storeEvent(event: ApplicationEvent) {
+    this.events.push(event);
+    return event;
+  }
+
+  listEvents() {
+    return [...this.events];
+  }
+
+  listEventsForObject(localObjectType: string, localObjectId: string) {
+    return this.events.filter(
+      (event) => event.localObjectType === localObjectType && event.localObjectId === localObjectId
+    );
+  }
+
+  createWorkflowRun(run: WorkflowRun) {
+    this.runs.set(run.id, run);
+    return run;
+  }
+
+  getWorkflowRun(id: string) {
+    return this.runs.get(id) ?? null;
+  }
+
+  updateWorkflowRun(run: WorkflowRun) {
+    this.runs.set(run.id, run);
+    return run;
+  }
+
+  createFailure(failure: FailureEvent) {
+    this.failures.push(failure);
+    return failure;
+  }
+
+  listFailures() {
+    return [...this.failures];
+  }
+
+  nextRunSequence() {
+    this.runSequence += 1;
+    return this.runSequence;
+  }
+}
+
+export class PostgresAppOSStore implements AppOSStore {
+  constructor(private readonly repo: AppOSRepository) {}
+
+  createBusinessContract(contract: BusinessContract) {
+    return this.repo.createBusinessContract(contract);
+  }
+
+  getBusinessContract(id: string) {
+    return this.repo.getBusinessContract(id);
+  }
+
+  storeEvent(event: ApplicationEvent) {
+    return this.repo.createApplicationEvent(event);
+  }
+
+  listEvents() {
+    return this.repo.listApplicationEvents(500);
+  }
+
+  listEventsForObject(localObjectType: string, localObjectId: string) {
+    return this.repo.listApplicationEventsForObject(localObjectType, localObjectId);
+  }
+
+  createWorkflowRun(run: WorkflowRun) {
+    return this.repo.createWorkflowRun(run);
+  }
+
+  getWorkflowRun(id: string) {
+    return this.repo.getWorkflowRun(id);
+  }
+
+  updateWorkflowRun(run: WorkflowRun) {
+    return this.repo.updateWorkflowRun(run);
+  }
+
+  createFailure(failure: FailureEvent) {
+    return this.repo.createFailureEvent(failure);
+  }
+
+  listFailures() {
+    return this.repo.listFailureEvents(200);
+  }
+
+  nextRunSequence() {
+    return this.repo.nextRunSequence();
+  }
+}
+
+export class AppOSGatewayService {
+  constructor(private readonly store: AppOSStore = new InMemoryAppOSStore()) {}
+
+  async createContract(payload: unknown) {
+    const contract = businessContractSchema.parse(payload);
+    await this.store.createBusinessContract(contract);
 
     const event = applicationEventSchema.parse({
       id: `evt_${contract.id}`,
@@ -37,54 +156,54 @@ export class AppOSGatewayService {
       timestamp: contract.createdAt
     });
 
-    this.events.push(event);
+    await this.store.storeEvent(event);
     return { contract, event };
   }
 
-  getContract(id: string) {
-    return this.contracts.get(id);
+  async getContract(id: string) {
+    return this.store.getBusinessContract(id);
   }
 
-  storeEvent(payload: unknown) {
+  async storeEvent(payload: unknown) {
     const event = applicationEventSchema.parse(payload);
-    this.events.push(event);
+    await this.store.storeEvent(event);
     return event;
   }
 
-  listEvents() {
-    return [...this.events];
+  async listEvents() {
+    return this.store.listEvents();
   }
 
-  createPlannedRun(input: PlannedRunInput) {
-    this.runSequence += 1;
+  async createPlannedRun(input: PlannedRunInput) {
+    const sequence = await this.store.nextRunSequence();
     const now = new Date().toISOString();
     const run = workflowRunSchema.parse({
-      id: `run_${String(this.runSequence).padStart(4, '0')}`,
+      id: `run_${String(sequence).padStart(4, '0')}`,
       workflowDefinitionId: input.workflowDefinitionId,
       provider: input.provider,
       businessContractId: input.businessContractId,
       status: 'planned',
       input: input.input,
-      traceId: `trace_${String(this.runSequence).padStart(4, '0')}`,
+      traceId: `trace_${String(sequence).padStart(4, '0')}`,
       createdAt: now,
       updatedAt: now
     });
-    this.runs.set(run.id, run);
+    await this.store.createWorkflowRun(run);
     return run;
   }
 
-  getRun(id: string) {
-    return this.runs.get(id);
+  async getRun(id: string) {
+    return this.store.getWorkflowRun(id);
   }
 
-  updateRunFromN8nCallback(payload: {
+  async updateRunFromN8nCallback(payload: {
     runId: string;
     status: WorkflowRun['status'];
     output?: Record<string, unknown>;
     error?: { message?: string; [key: string]: unknown };
     externalExecutionId?: string;
   }) {
-    const current = this.runs.get(payload.runId);
+    const current = await this.store.getWorkflowRun(payload.runId);
     if (!current) {
       return null;
     }
@@ -97,10 +216,10 @@ export class AppOSGatewayService {
       externalExecutionId: payload.externalExecutionId ?? current.externalExecutionId,
       updatedAt: now
     });
-    this.runs.set(updated.id, updated);
+    await this.store.updateWorkflowRun(updated);
 
     if (payload.status !== 'failed') {
-      const event = this.storeEvent({
+      const event = await this.storeEvent({
         id: `evt_${updated.id}_${payload.status}`,
         source: 'tele-opc',
         eventType: payload.status === 'done' ? 'workflow_done' : 'workflow_started',
@@ -125,11 +244,19 @@ export class AppOSGatewayService {
       severity: 'medium',
       firstSeenAt: now
     });
-    this.failures.push(failure);
+    await this.store.createFailure(failure);
     return { run: updated, failure };
   }
 
-  listFailures() {
-    return [...this.failures];
+  async listFailures() {
+    return this.store.listFailures();
+  }
+
+  async listEventsForRun(runId: string) {
+    if (this.store.listEventsForObject) {
+      return this.store.listEventsForObject('workflow_run', runId);
+    }
+    const events = await this.store.listEvents();
+    return events.filter((event) => event.localObjectType === 'workflow_run' && event.localObjectId === runId);
   }
 }

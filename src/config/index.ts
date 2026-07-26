@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import YAML from 'yaml';
 import { z } from 'zod';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const envBool = (defaultValue: boolean) => z.preprocess((value) => {
   if (typeof value !== 'string') return value;
@@ -41,7 +41,21 @@ const envSchema = z.object({
   CODEX_BRIDGE_DANGEROUS_BYPASS: envBool(false),
   CODEX_BRIDGE_INBOX_PATH: z.string().default('runtime/codex-inbox.jsonl'),
   CODEX_BRIDGE_MAX_PROMPT_CHARS: z.coerce.number().default(8000),
-  DEFAULT_TIMEZONE: z.string().default('Asia/Shanghai')
+  DEFAULT_TIMEZONE: z.string().default('Asia/Shanghai'),
+  WEB_CONSOLE_AUTH_MODE: z.enum(['auto', 'open', 'telegram']).default('auto'),
+  WEB_CONSOLE_DEV_TOKEN: z.string().default(''),
+  APPOS_FEISHU_APP_ID: z.string().default(''),
+  APPOS_FEISHU_APP_SECRET: z.string().default(''),
+  APPOS_FEISHU_BASE_APP_TOKEN: z.string().default(''),
+  APPOS_FEISHU_OPEN_BASE_URL: z.string().default('https://open.feishu.cn/open-apis'),
+  APPOS_FEISHU_MIRROR_ENABLED: envBool(false),
+  APPOS_FEISHU_AUTO_SYNC_INTERVAL_MS: z.coerce.number().int().min(15000).max(86400000).default(60000),
+  PAPERCLIP_ENABLED: envBool(false),
+  PAPERCLIP_API_URL: z.string().default('http://127.0.0.1:3101'),
+  PAPERCLIP_API_KEY: z.string().default(''),
+  PAPERCLIP_COMPANY_ID: z.string().default(''),
+  PAPERCLIP_WEBHOOK_SECRET: z.string().default(''),
+  PAPERCLIP_HEARTBEAT_WAIT_MS: z.coerce.number().int().min(0).max(900000).default(12000)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -71,6 +85,26 @@ export function loadConfig() {
       encryptionKey: env.APP_ENCRYPTION_KEY,
       logLevel: env.LOG_LEVEL,
       timezone: env.DEFAULT_TIMEZONE
+    },
+    webConsole: {
+      authMode: env.WEB_CONSOLE_AUTH_MODE,
+      devToken: env.WEB_CONSOLE_DEV_TOKEN
+    },
+    feishu: {
+      appId: env.APPOS_FEISHU_APP_ID,
+      appSecret: env.APPOS_FEISHU_APP_SECRET,
+      baseAppToken: env.APPOS_FEISHU_BASE_APP_TOKEN,
+      openBaseUrl: env.APPOS_FEISHU_OPEN_BASE_URL,
+      mirrorEnabled: env.APPOS_FEISHU_MIRROR_ENABLED,
+      autoSyncIntervalMs: env.APPOS_FEISHU_AUTO_SYNC_INTERVAL_MS
+    },
+    paperclip: {
+      enabled: env.PAPERCLIP_ENABLED,
+      apiUrl: env.PAPERCLIP_API_URL,
+      apiKey: env.PAPERCLIP_API_KEY,
+      companyId: env.PAPERCLIP_COMPANY_ID,
+      webhookSecret: env.PAPERCLIP_WEBHOOK_SECRET,
+      heartbeatWaitMs: env.PAPERCLIP_HEARTBEAT_WAIT_MS
     },
     database: {
       url: env.DATABASE_URL

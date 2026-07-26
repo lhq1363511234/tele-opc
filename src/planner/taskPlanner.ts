@@ -64,14 +64,18 @@ export function createTaskPlan(text: string): TaskPlan | null {
   };
 }
 
+/**
+ * Only treats a request as an explicit step list when the user actually wrote
+ * one (numbered markers or bullet lines). Splitting arbitrary prose on commas
+ * shredded real goals into meaningless fragments like "付多少".
+ */
 function stepsFromDelimitedRequest(text: string) {
-  const afterColon = text.split(/[：:]/).slice(1).join(':').trim();
-  if (!afterColon) return [];
+  const numbered = text.match(/(?:^|\n)\s*(?:\d+[.、)）]|[-*•])\s*[^\n]{4,}/g);
+  if (!numbered || numbered.length < 2) return [];
 
-  return afterColon
-    .split(/[、，,；;]/)
-    .map((part) => part.trim())
-    .filter((part) => part.length >= 2)
+  return numbered
+    .map((part) => part.replace(/^\s*(?:\d+[.、)）]|[-*•])\s*/, '').trim())
+    .filter((part) => part.length >= 4)
     .slice(0, 8)
     .map((part) => ({
       title: normalizeStepTitle(part),

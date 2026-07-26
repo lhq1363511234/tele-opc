@@ -20,6 +20,11 @@ Tele-OPC OS V3.2 是一个一人公司 Agent OS。它把 Telegram 当作控制�
 
 当前仓库处于 V3.2 Agent OS MVP，已经能完成：
 
+- Web Console 支持 `WEB_CONSOLE_AUTH_MODE`（auto/open/telegram）与 dev token 闸门。
+- AI Agent 会注入 Context Pack（记忆/客户/财务风险/活跃任务）而不只是 runtime 快照。
+- AppOS BusinessContract / WorkflowRun 已可持久化到 PostgreSQL（migration 014）。
+- `/today` 升级为 v3 经营简报，附带 Context Pack 摘要。
+
 - Telegram webhook 接收消息。
 - 只允许 owner allowlist 内的 Telegram 用户操作。
 - `/agents` 查看 Agent Registry，`/agent <id>` 查看单个 Agent 的职责、能力和确认边界。
@@ -895,3 +900,8 @@ Tele-OPC OS 应该有用，但不能鲁莽。
 7. 完善 V3 部署、开源发布、安全、备份和长期运维。
 
 具体见 [V3_AGENT_OS_ROADMAP.zh-CN.md](./V3_AGENT_OS_ROADMAP.zh-CN.md)。
+
+
+## Paperclip 集成
+
+Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issue 编排，Tele-OPC 负责执行、Telegram、飞书台账和经营数据。详见 [`docs/PAPERCLIP_INTEGRATION.md`](docs/PAPERCLIP_INTEGRATION.md)。

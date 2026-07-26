@@ -1,0 +1,54 @@
+- generic [ref=e3]:
+  - complementary "主导航" [ref=e4]:
+    - generic [ref=e12]:
+      - strong [ref=e13]: Tele-OPC OS
+      - generic [ref=e14]: Operating Console
+    - generic [ref=e17]:
+      - strong [ref=e18]: 系统需检查
+      - generic [ref=e19]: 0 个 Agent 运行中
+    - navigation [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: Command
+        - button "A- 数字自我" [ref=e23] [cursor=pointer]
+        - button "Paperclip 治理" [ref=e33] [cursor=pointer]
+        - button "执行监控" [ref=e39] [cursor=pointer]
+        - button "执行任务" [ref=e46] [cursor=pointer]
+        - button "Agents" [ref=e52] [cursor=pointer]
+      - generic [ref=e57]:
+        - generic [ref=e58]: Business
+        - button "经营分析" [ref=e59] [cursor=pointer]
+        - button "CRM" [ref=e63] [cursor=pointer]
+        - button "Mail" [ref=e70] [cursor=pointer]
+        - button "Finance" [ref=e75] [cursor=pointer]
+        - button "Calendar" [ref=e80] [cursor=pointer]
+        - button "Browser" [ref=e84] [cursor=pointer]
+      - generic [ref=e89]:
+        - generic [ref=e90]: System
+        - button "Mini App" [ref=e91] [cursor=pointer]
+        - button "Dependencies" [ref=e96] [cursor=pointer]
+        - button "Settings" [ref=e101] [cursor=pointer]
+        - button "Debug" [ref=e106] [cursor=pointer]
+    - generic [ref=e110]:
+      - generic [ref=e111]: DB
+      - generic [ref=e116]: Redis
+      - generic [ref=e121]: ⌘K 快速指令
+  - main [ref=e122]:
+    - generic [ref=e123]:
+      - generic [ref=e125]:
+        - generic [ref=e126]: OPERATIONS / CRM
+        - heading "CRM" [level=1] [ref=e127]
+      - generic [ref=e133]:
+        - generic [ref=e134]: Attention
+        - generic [ref=e136]: 同步中
+        - button "刷新全部数据" [ref=e140] [cursor=pointer]
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - generic [ref=e148]: Chief Agent
+        - generic [ref=e152]: 低风险自动执行
+        - generic [ref=e153]: 财务/付款强审批
+      - generic [ref=e154]:
+        - textbox "给 Chief Agent 下达指令" [ref=e157]:
+          - /placeholder: 告诉 Chief Agent 你要达成什么目标…
+        - generic [ref=e158]: ⌘K
+        - button "发送" [ref=e159] [cursor=pointer]
+    - generic [ref=e163]: 加载控制台数据

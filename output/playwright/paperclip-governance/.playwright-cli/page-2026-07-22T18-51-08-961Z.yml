@@ -1,0 +1,55 @@
+- generic [ref=f4e3]:
+  - complementary "主导航" [ref=f4e4]:
+    - generic [ref=f4e5]:
+      - generic [ref=f4e12]:
+        - strong [ref=f4e13]: Tele-OPC OS
+        - generic [ref=f4e14]: Operating Console
+      - button "关闭导航" [ref=f4e15] [cursor=pointer]
+    - generic [ref=f4e21]:
+      - strong [ref=f4e22]: 系统需检查
+      - generic [ref=f4e23]: 0 个 Agent 运行中
+    - navigation [ref=f4e24]:
+      - generic [ref=f4e25]:
+        - generic [ref=f4e26]: Command
+        - button "Mission Control" [ref=f4e27] [cursor=pointer]
+        - button "Paperclip 治理" [ref=f4e34] [cursor=pointer]
+        - button "Agents" [ref=f4e40] [cursor=pointer]
+        - button "Tasks" [ref=f4e45] [cursor=pointer]
+        - button "Mini App" [ref=f4e51] [cursor=pointer]
+      - generic [ref=f4e56]:
+        - generic [ref=f4e57]: Business
+        - button "CRM" [ref=f4e58] [cursor=pointer]
+        - button "Mail" [ref=f4e65] [cursor=pointer]
+        - button "Finance" [ref=f4e70] [cursor=pointer]
+        - button "Calendar" [ref=f4e75] [cursor=pointer]
+        - button "Browser" [ref=f4e79] [cursor=pointer]
+        - button "经营分析" [ref=f4e84] [cursor=pointer]
+      - generic [ref=f4e88]:
+        - generic [ref=f4e89]: System
+        - button "Dependencies" [ref=f4e90] [cursor=pointer]
+        - button "Settings" [ref=f4e95] [cursor=pointer]
+        - button "Mini App Debug" [ref=f4e100] [cursor=pointer]
+    - generic [ref=f4e104]:
+      - generic [ref=f4e105]: DB
+      - generic [ref=f4e110]: Redis
+      - generic [ref=f4e115]: ⌘K 快速指令
+  - main [ref=f4e116]:
+    - generic [ref=f4e117]:
+      - generic [ref=f4e118]:
+        - button "打开导航" [ref=f4e119] [cursor=pointer]
+        - generic [ref=f4e121]:
+          - generic [ref=f4e122]: OPERATIONS / PAPERCLIP
+          - heading "Paperclip 治理" [level=1] [ref=f4e123]
+      - generic [ref=f4e124]:
+        - generic [ref=f4e125]: Attention
+        - button "刷新全部数据" [ref=f4e127] [cursor=pointer]
+    - generic [ref=f4e133]:
+      - generic [ref=f4e134]:
+        - generic [ref=f4e135]: Chief Agent
+        - generic [ref=f4e139]: 低风险自动执行
+        - generic [ref=f4e140]: 财务/付款强审批
+      - generic [ref=f4e141]:
+        - textbox "给 Chief Agent 下达指令" [ref=f4e142]:
+          - /placeholder: 告诉 Chief Agent 你要达成什么目标…
+        - button "发送" [ref=f4e143] [cursor=pointer]
+    - generic [ref=f4e147]: 加载控制台数据

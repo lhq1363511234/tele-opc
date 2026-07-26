@@ -1,0 +1,187 @@
+- generic [ref=f1e3]:
+  - complementary "主导航" [ref=f1e4]:
+    - generic [ref=f1e12]:
+      - strong [ref=f1e13]: Tele-OPC OS
+      - generic [ref=f1e14]: Operating Console
+    - generic [ref=f1e17]:
+      - strong [ref=f1e18]: 系统可执行
+      - generic [ref=f1e19]: 0 个 Agent 运行中
+    - navigation [ref=f1e20]:
+      - generic [ref=f1e21]:
+        - generic [ref=f1e22]: Command
+        - button "Mission Control" [ref=f1e23] [cursor=pointer]
+        - button "A- 数字自我" [ref=f1e30] [cursor=pointer]
+        - button "Paperclip 治理" [ref=f1e40] [cursor=pointer]
+        - button "Agents" [ref=f1e46] [cursor=pointer]
+        - button "Tasks" [ref=f1e51] [cursor=pointer]
+      - generic [ref=f1e57]:
+        - generic [ref=f1e58]: Business
+        - button "Mini App" [ref=f1e59] [cursor=pointer]
+        - button "CRM" [ref=f1e64] [cursor=pointer]
+        - button "Mail" [ref=f1e71] [cursor=pointer]
+        - button "Finance" [ref=f1e76] [cursor=pointer]
+        - button "Calendar" [ref=f1e81] [cursor=pointer]
+        - button "Browser" [ref=f1e85] [cursor=pointer]
+      - generic [ref=f1e90]:
+        - generic [ref=f1e91]: System
+        - button "经营分析" [ref=f1e92] [cursor=pointer]
+        - button "Dependencies" [ref=f1e96] [cursor=pointer]
+        - button "Settings" [ref=f1e101] [cursor=pointer]
+        - button "Mini App Debug" [ref=f1e106] [cursor=pointer]
+    - generic [ref=f1e110]:
+      - generic [ref=f1e111]: DB
+      - generic [ref=f1e116]: Redis
+      - generic [ref=f1e121]: ⌘K 快速指令
+  - main [ref=f1e122]:
+    - generic [ref=f1e123]:
+      - generic [ref=f1e125]:
+        - generic [ref=f1e126]: OPERATIONS / ASELF
+        - heading "A- 数字自我" [level=1] [ref=f1e127]
+      - generic [ref=f1e136]:
+        - generic [ref=f1e137]: Live
+        - generic [ref=f1e139]: 07/25 04:20
+        - button "刷新全部数据" [ref=f1e143] [cursor=pointer]
+    - generic [ref=f1e149]:
+      - generic [ref=f1e150]:
+        - generic [ref=f1e151]: Chief Agent
+        - generic [ref=f1e155]: 低风险自动执行
+        - generic [ref=f1e156]: 财务/付款强审批
+      - generic [ref=f1e157]:
+        - textbox "给 Chief Agent 下达指令" [ref=f1e160]:
+          - /placeholder: 告诉 Chief Agent 你要达成什么目标…
+        - generic [ref=f1e161]: ⌘K
+        - button "发送" [ref=f1e162] [cursor=pointer]
+    - generic [ref=f1e177]:
+      - generic [ref=f1e178]:
+        - generic [ref=f1e179]:
+          - generic [ref=f1e180]: DIGITAL SELF PROTOTYPE
+          - heading "A-" [level=2] [ref=f1e189]
+          - paragraph [ref=f1e190]: 用现成大模型作为推理底座，用个人数据、规则、记忆和工具权限逐渐生成数字分身。
+          - generic [ref=f1e191]:
+            - generic [ref=f1e192]: A- 0.1
+            - generic [ref=f1e194]: 更新 07/25 04:20
+            - generic [ref=f1e195]: 相似度置信 18%
+        - generic [ref=f1e196]:
+          - button "刷新" [ref=f1e197] [cursor=pointer]
+          - button "新增记忆" [ref=f1e203] [cursor=pointer]
+          - button "记录决策" [ref=f1e205] [cursor=pointer]
+      - generic [ref=f1e207]:
+        - article [ref=f1e208]:
+          - generic [ref=f1e214]: 记忆条目
+          - strong [ref=f1e215]: "1"
+          - generic [ref=f1e216]: 1 类资料
+        - article [ref=f1e217]:
+          - generic [ref=f1e223]: 决策日志
+          - strong [ref=f1e224]: "0"
+          - generic [ref=f1e225]: 0 条规则
+        - article [ref=f1e226]:
+          - generic [ref=f1e231]: 权限规则
+          - strong [ref=f1e232]: "4"
+          - generic [ref=f1e233]: Level 1/2/3
+        - article [ref=f1e234]:
+          - generic [ref=f1e241]: OPC 运行
+          - strong [ref=f1e242]: "0"
+          - generic [ref=f1e243]: 早晚经营循环
+      - generic [ref=f1e244]:
+        - generic [ref=f1e245]:
+          - generic [ref=f1e246]:
+            - heading "人格基因 A_profile" [level=2] [ref=f1e247]
+            - generic [ref=f1e248]: 价值排序、决策原则、沟通风格、禁区
+          - paragraph [ref=f1e249]: A- 不是普通助手，而是基于历史、价值观、决策方式和 OPC 经营上下文形成的数字自我原型。当前阶段目标是先复制记忆，再复制判断，再复制行动，最后复制经营能力。
+          - generic [ref=f1e250]:
+            - generic [ref=f1e251]:
+              - heading "价值排序" [level=3] [ref=f1e252]
+              - paragraph [ref=f1e253]: 长期成长 > 短期收入
+              - paragraph [ref=f1e254]: 自由 > 稳定
+              - paragraph [ref=f1e255]: 创造 > 消费
+              - paragraph [ref=f1e256]: 复利能力 > 一次性收益
+            - generic [ref=f1e257]:
+              - heading "决策原则" [level=3] [ref=f1e258]
+              - paragraph [ref=f1e259]: 重大决定先看是否符合长期方向
+              - paragraph [ref=f1e260]: 优先选择能提高能力并形成复利的事情
+              - paragraph [ref=f1e261]: 低成本验证需求，再扩大投入
+              - paragraph [ref=f1e262]: 信息不足时不假装知道，先标注假设
+            - generic [ref=f1e263]:
+              - heading "禁区" [level=3] [ref=f1e264]
+              - paragraph [ref=f1e265]: 不做损害长期信用的事情
+              - paragraph [ref=f1e266]: 花钱、签合同、股权、战略变化必须本人确认
+              - paragraph [ref=f1e267]: 不得冒充真实数据
+              - paragraph [ref=f1e268]: 不得越权访问未授权系统
+        - generic [ref=f1e269]:
+          - generic [ref=f1e270]:
+            - heading "30 天生成路线" [level=2] [ref=f1e271]
+            - generic [ref=f1e272]: 记忆 → 判断 → 行动 → 经营
+          - generic [ref=f1e273]:
+            - article [ref=f1e274]:
+              - generic [ref=f1e278]:
+                - strong [ref=f1e279]: 复制记忆
+                - paragraph [ref=f1e280]: 收集人生经历、项目、聊天、邮件、写作和为什么。
+              - generic [ref=f1e281]: in_progress
+            - article [ref=f1e282]:
+              - generic [ref=f1e286]:
+                - strong [ref=f1e287]: 复制判断
+                - paragraph [ref=f1e288]: 用 Decision Log 沉淀选择、原因、结果和以后规则。
+              - generic [ref=f1e289]: ready
+            - article [ref=f1e290]:
+              - generic [ref=f1e294]:
+                - strong [ref=f1e295]: 复制行动
+                - paragraph [ref=f1e296]: 通过 Level 1/2/3 权限逐步连接 MCP、邮件、飞书、CRM。
+              - generic [ref=f1e297]: guarded
+            - article [ref=f1e298]:
+              - generic [ref=f1e302]:
+                - strong [ref=f1e303]: 复制经营能力
+                - paragraph [ref=f1e304]: 早晨市场扫描，晚上经营总结，连接 OPC 公司环境。
+              - generic [ref=f1e305]: planned
+      - generic [ref=f1e306]:
+        - generic [ref=f1e307]:
+          - generic [ref=f1e308]:
+            - heading "长期记忆" [level=2] [ref=f1e309]
+            - generic [ref=f1e310]: 重点记录为什么
+          - article [ref=f1e410]:
+            - generic [ref=f1e411]: 人生经历
+            - strong [ref=f1e412]: 拒绝某大厂外包合作
+            - paragraph [ref=f1e413]: 2025 年初某大厂提出 50 万外包项目，需要全职投入 3 个月做内网系统，我拒绝了。
+            - generic [ref=f1e414]: 为什么：因为低质量现金流会消耗长期机会，这不符合 Tele-OPC 的产品化方向。
+        - generic [ref=f1e317]:
+          - generic [ref=f1e318]:
+            - heading "Decision Log" [level=2] [ref=f1e319]
+            - generic [ref=f1e320]: 复制判断系统
+          - generic [ref=f1e321]: 还没有决策日志。每次选择都记录：问题、选择、为什么、结果、以后规则。
+        - generic [ref=f1e327]:
+          - generic [ref=f1e328]:
+            - heading "行动权限" [level=2] [ref=f1e329]
+            - generic [ref=f1e330]: 不要一开始给完全自主权
+          - generic [ref=f1e331]:
+            - article [ref=f1e332]:
+              - generic [ref=f1e333]:
+                - strong [ref=f1e337]: Level 1
+                - generic [ref=f1e338]: reviewable_auto
+              - heading "memory_write" [level=3] [ref=f1e339]
+              - paragraph [ref=f1e340]: 可写入低风险个人记忆和决策草稿，但必须标注来源与置信度。
+              - generic [ref=f1e341]: 可自动执行
+            - article [ref=f1e342]:
+              - generic [ref=f1e343]:
+                - strong [ref=f1e347]: Level 1
+                - generic [ref=f1e348]: auto
+              - heading "research_and_summary" [level=3] [ref=f1e349]
+              - paragraph [ref=f1e350]: 自动搜集信息、总结、整理草稿，不触碰外部承诺。
+              - generic [ref=f1e351]: 可自动执行
+            - article [ref=f1e352]:
+              - generic [ref=f1e353]:
+                - strong [ref=f1e357]: Level 2
+                - generic [ref=f1e358]: semi_auto
+              - heading "routine_communication" [level=3] [ref=f1e359]
+              - paragraph [ref=f1e360]: 普通消息、内容发布、客户回复可生成草稿或等待确认后发送。
+              - generic [ref=f1e361]: 需要确认/审批
+            - article [ref=f1e362]:
+              - generic [ref=f1e363]:
+                - strong [ref=f1e367]: Level 3
+                - generic [ref=f1e368]: human_required
+              - heading "money_contract_equity_strategy" [level=3] [ref=f1e369]
+              - paragraph [ref=f1e370]: 花钱、签合同、股权、战略变化必须本人审批，A- 只能分析和起草。
+              - generic [ref=f1e371]: 需要确认/审批
+      - generic [ref=f1e372]:
+        - generic [ref=f1e373]:
+          - heading "OPC 公司环境" [level=2] [ref=f1e374]
+          - generic [ref=f1e375]: 早晨市场扫描，晚上经营总结
+        - generic [ref=f1e376]: 还没有 OPC 运行记录。下一步可以创建早晨市场扫描和晚上经营总结自动任务。

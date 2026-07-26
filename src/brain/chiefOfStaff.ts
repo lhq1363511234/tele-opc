@@ -274,7 +274,8 @@ export class ChiefOfStaff {
       });
     }
 
-    const structuredPlan = createTaskPlan(intake.normalizedText);
+    const structuredPlan = (await this.planGoalWithAI(intake.normalizedText, context))
+      ?? createTaskPlan(intake.normalizedText);
 
     if (
       chiefIntent?.targetWorkflow === 'prospecting'
@@ -2123,6 +2124,85 @@ export class ChiefOfStaff {
       '我会跑多轮公开检索、读取来源正文、抽取公司名、逐条打分，再给每家写一条触达话术，最后全部写进 CRM。',
       `期间会推进度给你。完成后发送 \`/task ${task.id}\` 看结果，或到 CRM 页面直接用话术。`
     ].filter(Boolean).join('\n');
+  }
+
+  /**
+   * Decomposes a goal-shaped request into real executable steps using the AI
+   * agent instead of punctuation splitting. Returns null when the request is
+   * not a goal (short chatter, single action) so the regex planner still runs.
+   */
+  private async planGoalWithAI(text: string, context: BrainContext): Promise<TaskPlan | null> {
+    if (!this.agentRunner) return null;
+    if (text.trim().length < 24) return null;
+
+    const knownAgents = [
+      'chief_of_staff', 'prospecting', 'crm', 'solution', 'quote',
+      'dev', 'email', 'finance', 'calendar', 'browser', 'content'
+    ];
+
+    try {
+      const result = await this.agentRunner.run({
+        agentId: 'chief_of_staff',
+        systemPrompt: '你是经营目标拆解器。只输出 JSON，不要输出 Markdown 代码块。',
+        userText: [
+          '把下面这段请求拆成可执行的经营步骤。',
+          '',
+          `原话：${text}`,
+          '',
+          '规则：',
+          '- 每一步必须是一个能真正做的动作，不能是原话的片段或标点切片',
+          '- title 用祈使句写清楚要做什么，10-30 字',
+          '- description 写清楚这一步的产出和判断标准',
+          '- owner 从这些里选：' + knownAgents.join(' / '),
+          '- 最多 6 步，按执行顺序排',
+          '- 如果这段话只是一个单一动作或闲聊，不需要拆解，返回 {"isGoal":false,"steps":[]}',
+          '',
+          '只输出 JSON：{"isGoal":true,"goal":"一句话目标","steps":[{"title":"","description":"","owner":"chief_of_staff"}]}'
+        ].join('\n'),
+        context: {
+          telegramUserId: context.telegramUserId,
+          userId: context.userId,
+          chatId: context.chatId,
+          originMessageId: context.originMessageId
+        },
+        tools: [],
+        maxToolRounds: 0,
+        metadata: {
+          source: 'telegram',
+          sourceMessageId: context.originMessageId,
+          workflow: 'goal_decomposition'
+        }
+      });
+
+      const raw = result.content.replace(/```json|```/g, '').trim();
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start < 0 || end <= start) return null;
+      const parsed = JSON.parse(raw.slice(start, end + 1)) as {
+        isGoal?: boolean;
+        goal?: string;
+        steps?: Array<{ title?: string; description?: string; owner?: string }>;
+      };
+
+      if (parsed.isGoal === false) return null;
+      const steps = (parsed.steps ?? [])
+        .filter((step) => typeof step.title === 'string' && step.title.trim().length >= 4)
+        .slice(0, 6)
+        .map((step) => ({
+          title: (step.title as string).trim().slice(0, 80),
+          description: (step.description ?? step.title ?? '').trim().slice(0, 600),
+          ownerAgent: knownAgents.includes(step.owner ?? '') ? (step.owner as string) : 'chief_of_staff'
+        }));
+      if (steps.length < 2) return null;
+
+      return {
+        goal: (parsed.goal ?? text).slice(0, 200),
+        reasons: ['ai decomposed operating goal'],
+        steps
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Pulls offer / ICP / region / target count out of one free-form sentence. */

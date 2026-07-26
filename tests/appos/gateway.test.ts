@@ -41,7 +41,7 @@ describe('AppOS Gateway routes', () => {
     expect(body.ok).toBe(true);
     expect(body.contract.id).toBe('bc_gateway_001');
     expect(body.event.eventType).toBe('business_contract_created');
-    expect(service.getContract('bc_gateway_001')?.goal).toBe('Create a CPS content matrix');
+    expect((await service.getContract('bc_gateway_001'))?.goal).toBe('Create a CPS content matrix');
   });
 
   it('rejects invalid contracts with missing fields', async () => {
@@ -79,12 +79,12 @@ describe('AppOS Gateway routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.listEvents()).toHaveLength(1);
+    expect(await service.listEvents()).toHaveLength(1);
   });
 
   it('returns workflow run status by id', async () => {
     const { app, service } = buildApp();
-    service.createPlannedRun({
+    await service.createPlannedRun({
       workflowDefinitionId: 'wf_content_matrix',
       provider: 'n8n',
       businessContractId: 'bc_gateway_001',
@@ -102,7 +102,7 @@ describe('AppOS Gateway routes', () => {
 
   it('updates workflow run status from n8n callback', async () => {
     const { app, service } = buildApp();
-    service.createPlannedRun({
+    await service.createPlannedRun({
       workflowDefinitionId: 'wf_content_matrix',
       provider: 'n8n',
       businessContractId: 'bc_gateway_001',
@@ -121,12 +121,12 @@ describe('AppOS Gateway routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.getRun('run_0001')?.status).toBe('done');
+    expect((await service.getRun('run_0001'))?.status).toBe('done');
   });
 
   it('normalizes failed n8n callbacks into failure events', async () => {
     const { app, service } = buildApp();
-    service.createPlannedRun({
+    await service.createPlannedRun({
       workflowDefinitionId: 'wf_content_matrix',
       provider: 'n8n',
       businessContractId: 'bc_gateway_001',

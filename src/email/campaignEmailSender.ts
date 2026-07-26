@@ -85,7 +85,7 @@ export class CampaignEmailSender {
   constructor(
     private readonly repos: CampaignEmailRepositories,
     private readonly transport: MailTransport | null = NodemailerMailTransport.fromEnv(),
-    private readonly from = process.env.SMTP_FROM || process.env.SMTP_USER || ''
+    private readonly from = formatFromAddress(process.env.SMTP_FROM || process.env.SMTP_USER || '')
   ) {}
 
   async sendCampaign(campaignId: string, options: { limit?: number } = {}): Promise<CampaignSendResult> {
@@ -270,3 +270,142 @@ function firstString(...values: unknown[]) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+export interface CustomerEmailMessage {
+  to: string | string[];
+  cc?: string | string[];
+  subject: string;
+  text: string;
+  html?: string;
+  from?: string;
+}
+
+export interface CustomerEmailSendResult {
+  ok: boolean;
+  status: 'sent' | 'skipped' | 'failed';
+  to: string[];
+  cc: string[];
+  subject: string;
+  from: string;
+  messageId?: string;
+  response?: string;
+  reason?: string;
+  error?: string;
+}
+
+export function getSmtpConfigStatus() {
+  const host = process.env.SMTP_HOST || '';
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = /^true$/i.test(process.env.SMTP_SECURE ?? '');
+  const user = process.env.SMTP_USER || '';
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || '';
+  const passwordConfigured = Boolean(process.env.SMTP_PASSWORD);
+  const configured = Boolean(host && from && (!user || passwordConfigured));
+  return {
+    configured,
+    host,
+    port,
+    secure,
+    user: user ? `${user.slice(0, 3)}***${user.slice(-3)}` : '',
+    from,
+    passwordConfigured,
+    providerHint: host.includes('feishu') ? 'feishu' : host || 'unknown'
+  };
+}
+
+function normalizeAddressList(value?: string | string[]) {
+  if (!value) return [] as string[];
+  const raw = Array.isArray(value) ? value : [value];
+  const out: string[] = [];
+  for (const item of raw) {
+    for (const part of String(item).split(/[,;\s]+/)) {
+      const email = part.trim();
+      if (!email) continue;
+      if (!/[^@\s]+@[^@\s]+\.[^@\s]+/.test(email)) {
+        throw new Error(`invalid_email:${email}`);
+      }
+      if (!out.includes(email)) out.push(email);
+    }
+  }
+  return out;
+}
+
+
+function formatFromAddress(from: string) {
+  const address = (from || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+  if (!address) return '';
+  // Prevent provider-side mailbox display name (e.g. "统一注册") from showing.
+  const display = (process.env.SMTP_FROM_NAME || 'opcToai').trim() || 'opcToai';
+  if (address.includes('<') && address.includes('>')) return address;
+  const safeName = display.replace(/[\r\n"<>]/g, '').trim() || 'opcToai';
+  return `"${safeName}" <${address}>`;
+}
+
+export class CustomerEmailSender {
+  constructor(
+    private readonly transport: MailTransport | null = NodemailerMailTransport.fromEnv(),
+    private readonly from = formatFromAddress(process.env.SMTP_FROM || process.env.SMTP_USER || '')
+  ) {}
+
+  static fromEnv() {
+    return new CustomerEmailSender();
+  }
+
+  getStatus() {
+    return {
+      ...getSmtpConfigStatus(),
+      transportReady: Boolean(this.transport && this.from)
+    };
+  }
+
+  async sendCustomerEmail(message: CustomerEmailMessage): Promise<CustomerEmailSendResult> {
+    const to = normalizeAddressList(message.to);
+    const cc = normalizeAddressList(message.cc);
+    const subject = message.subject.trim();
+    const text = message.text.trim();
+    const from = formatFromAddress((message.from || this.from).trim());
+
+    if (!to.length) {
+      return { ok: false, status: 'failed', to, cc, subject, from, reason: 'missing_recipient' };
+    }
+    if (!subject) {
+      return { ok: false, status: 'failed', to, cc, subject, from, reason: 'missing_subject' };
+    }
+    if (!text && !message.html?.trim()) {
+      return { ok: false, status: 'failed', to, cc, subject, from, reason: 'missing_body' };
+    }
+    if (!this.transport || !from) {
+      return { ok: false, status: 'skipped', to, cc, subject, from, reason: 'smtp_not_configured' };
+    }
+
+    try {
+      const sent = await this.transport.sendMail({
+        from,
+        to: to.join(', '),
+        subject,
+        text: text || message.html || ''
+      });
+      return {
+        ok: true,
+        status: 'sent',
+        to,
+        cc,
+        subject,
+        from,
+        messageId: sent.messageId,
+        response: typeof sent.response === 'string' ? sent.response : undefined
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 'failed',
+        to,
+        cc,
+        subject,
+        from,
+        error: error instanceof Error ? error.message : 'unknown error'
+      };
+    }
+  }
+}
+

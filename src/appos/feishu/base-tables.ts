@@ -24,7 +24,10 @@ export const APPOS_FEISHU_TABLES = {
   EditingTemplates: { id: 'tblqAMIoXKmJnSM4', displayName: '剪辑模板' },
   MediaAnalyses: { displayName: '媒体分析' },
   EditingVersions: { displayName: '剪辑版本' },
-  PublishRecords: { id: 'tblAThebEIdZnWnm', displayName: '发布记录' }
+  PublishRecords: { id: 'tblAThebEIdZnWnm', displayName: '发布记录' },
+  OperatingTasks: { id: 'tblC66H0byA5tbWb', displayName: '经营任务' },
+  OperatingLeads: { id: 'tblkWSkGAUrJDp24', displayName: '经营线索' },
+  AnalyticsFacts: { id: 'tblHDS9vbbsRTHM4', displayName: '经营分析事实' }
 } as const satisfies Record<string, FeishuTableDefinition>;
 
 export type ApposFeishuTableName = keyof typeof APPOS_FEISHU_TABLES;

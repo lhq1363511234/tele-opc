@@ -1,0 +1,329 @@
+- generic [ref=e3]:
+  - complementary "主导航" [ref=e4]:
+    - generic [ref=e12]:
+      - strong [ref=e13]: Tele-OPC OS
+      - generic [ref=e14]: Operating Console
+    - generic [ref=e17]:
+      - strong [ref=e18]: 系统可执行
+      - generic [ref=e19]: 0 个 Agent 运行中
+    - navigation [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: Command
+        - button "A- 数字自我" [ref=e23] [cursor=pointer]
+        - button "Paperclip 治理" [ref=e33] [cursor=pointer]
+        - button "执行监控" [ref=e39] [cursor=pointer]
+        - button "执行任务" [ref=e46] [cursor=pointer]
+        - button "Agents" [ref=e52] [cursor=pointer]
+      - generic [ref=e57]:
+        - generic [ref=e58]: Business
+        - button "经营分析" [ref=e59] [cursor=pointer]
+        - button "CRM" [ref=e63] [cursor=pointer]
+        - button "Mail" [ref=e70] [cursor=pointer]
+        - button "Finance" [ref=e75] [cursor=pointer]
+        - button "Calendar" [ref=e80] [cursor=pointer]
+        - button "Browser" [ref=e84] [cursor=pointer]
+      - generic [ref=e89]:
+        - generic [ref=e90]: System
+        - button "Mini App" [ref=e91] [cursor=pointer]
+        - button "Dependencies" [ref=e96] [cursor=pointer]
+        - button "Settings" [ref=e101] [cursor=pointer]
+        - button "Debug" [ref=e106] [cursor=pointer]
+    - generic [ref=e110]:
+      - generic [ref=e111]: DB
+      - generic [ref=e116]: Redis
+      - generic [ref=e121]: ⌘K 快速指令
+  - main [ref=e122]:
+    - generic [ref=e123]:
+      - generic [ref=e125]:
+        - generic [ref=e126]: OPERATIONS / CRM
+        - heading "CRM" [level=1] [ref=e127]
+      - generic [ref=e133]:
+        - generic [ref=e134]: Live
+        - generic [ref=e136]: 07/26 09:55
+        - button "刷新全部数据" [ref=e140] [cursor=pointer]
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - generic [ref=e148]: Chief Agent
+        - generic [ref=e152]: 低风险自动执行
+        - generic [ref=e153]: 财务/付款强审批
+      - generic [ref=e154]:
+        - textbox "给 Chief Agent 下达指令" [ref=e157]:
+          - /placeholder: 告诉 Chief Agent 你要达成什么目标…
+        - generic [ref=e158]: ⌘K
+        - button "发送" [ref=e159] [cursor=pointer]
+    - generic [ref=e174]:
+      - generic [ref=e176]:
+        - generic [ref=e177]:
+          - strong [ref=e178]: 录入新线索
+          - generic [ref=e179]: 写入 contacts / opportunities / follow_ups，立即出现在下方看板
+        - button "新建线索" [ref=e180] [cursor=pointer]
+      - generic [ref=e182]:
+        - article [ref=e183]:
+          - text: 热线索
+          - strong [ref=e184]: "5"
+        - article [ref=e185]:
+          - text: 开放机会
+          - strong [ref=e186]: "5"
+        - article [ref=e187]:
+          - text: 逾期跟进
+          - strong [ref=e188]: "5"
+        - article [ref=e189]:
+          - text: 近期跟进
+          - strong [ref=e190]: "0"
+        - article [ref=e191]:
+          - text: 风险客户
+          - strong [ref=e192]: "5"
+      - generic [ref=e193]:
+        - generic [ref=e194]:
+          - heading "全部线索" [level=2] [ref=e195]
+          - generic [ref=e196]: contacts.status = lead · 共 100 条
+        - generic [ref=e197]:
+          - textbox "搜公司名、联系人或备注内容" [ref=e201]
+          - button "搜索" [ref=e202] [cursor=pointer]
+        - generic [ref=e203]:
+          - article [ref=e204]:
+            - button "南京泰普森自动化设备有限公司 财务负责人 55" [active] [ref=e205] [cursor=pointer]:
+              - generic [ref=e210]:
+                - strong [ref=e211]: 南京泰普森自动化设备有限公司
+                - generic [ref=e212]: 财务负责人
+              - emphasis [ref=e213]: "55"
+            - generic [ref=e551]:
+              - generic [ref=e552]:
+                - paragraph [ref=e553]: 注意到贵公司做自动化设备，财务流程也应该自动化起来。我们AI财务能自动记账和生成报表。请问目前财务系统是自己开发的还是购买的？
+                - button "复制话术" [ref=e554] [cursor=pointer]
+              - generic [ref=e558]: 来源不明确。 评分依据（55）：自动化设备公司，本身对自动化接受度高，财务流程可匹配。 触达话术：注意到贵公司做自动化设备，财务流程也应该自动化起来。我们AI财务能自动记账和生成报表。请问目前财务系统是自己开发的还是购买的？ 来源：https://file.smejs.cn/file/group1/M00/01/7F/rBIAAWkyiA6AUkZ3AAb2r1Jm2l8012.pdf
+              - link "https://file.smejs.cn/file/group1/M00/01/7F/rBIAAWkyiA6AUkZ3AAb2r1Jm2l8012.pdf" [ref=e559] [cursor=pointer]:
+                - /url: https://file.smejs.cn/file/group1/M00/01/7F/rBIAAWkyiA6AUkZ3AAb2r1Jm2l8012.pdf
+          - article [ref=e214]:
+            - button "南京百斯杰生物工程有限公司 财务负责人 55" [ref=e215] [cursor=pointer]:
+              - generic [ref=e220]:
+                - strong [ref=e221]: 南京百斯杰生物工程有限公司
+                - generic [ref=e222]: 财务负责人
+              - emphasis [ref=e223]: "55"
+          - article [ref=e224]:
+            - button "南京华瑞微集成电路有限公司 财务负责人 55" [ref=e225] [cursor=pointer]:
+              - generic [ref=e230]:
+                - strong [ref=e231]: 南京华瑞微集成电路有限公司
+                - generic [ref=e232]: 财务负责人
+              - emphasis [ref=e233]: "55"
+          - article [ref=e234]:
+            - button "南京天易合芯电子有限公司 财务负责人 55" [ref=e235] [cursor=pointer]:
+              - generic [ref=e240]:
+                - strong [ref=e241]: 南京天易合芯电子有限公司
+                - generic [ref=e242]: 财务负责人
+              - emphasis [ref=e243]: "55"
+          - article [ref=e244]:
+            - button "南京天创智能科技股份有限公司 财务负责人 55" [ref=e245] [cursor=pointer]:
+              - generic [ref=e250]:
+                - strong [ref=e251]: 南京天创智能科技股份有限公司
+                - generic [ref=e252]: 财务负责人
+              - emphasis [ref=e253]: "55"
+          - article [ref=e254]:
+            - button "南京蓝昊智能科技有限公司 财务负责人 55" [ref=e255] [cursor=pointer]:
+              - generic [ref=e260]:
+                - strong [ref=e261]: 南京蓝昊智能科技有限公司
+                - generic [ref=e262]: 财务负责人
+              - emphasis [ref=e263]: "55"
+          - article [ref=e264]:
+            - button "琻捷电子科技（江苏）股份有限公司 财务负责人 55" [ref=e265] [cursor=pointer]:
+              - generic [ref=e270]:
+                - strong [ref=e271]: 琻捷电子科技（江苏）股份有限公司
+                - generic [ref=e272]: 财务负责人
+              - emphasis [ref=e273]: "55"
+          - article [ref=e274]:
+            - button "江苏众信绿色管业科技有限公司 财务负责人 55" [ref=e275] [cursor=pointer]:
+              - generic [ref=e280]:
+                - strong [ref=e281]: 江苏众信绿色管业科技有限公司
+                - generic [ref=e282]: 财务负责人
+              - emphasis [ref=e283]: "55"
+          - article [ref=e284]:
+            - button "南京航健航空装备技术服务有限公司 财务负责人 55" [ref=e285] [cursor=pointer]:
+              - generic [ref=e290]:
+                - strong [ref=e291]: 南京航健航空装备技术服务有限公司
+                - generic [ref=e292]: 财务负责人
+              - emphasis [ref=e293]: "55"
+          - article [ref=e294]:
+            - button "南京兰埔成新材料有限公司 财务负责人 55" [ref=e295] [cursor=pointer]:
+              - generic [ref=e300]:
+                - strong [ref=e301]: 南京兰埔成新材料有限公司
+                - generic [ref=e302]: 财务负责人
+              - emphasis [ref=e303]: "55"
+          - article [ref=e304]:
+            - button "南京河海南自水电自动化有限公司 财务负责人 55" [ref=e305] [cursor=pointer]:
+              - generic [ref=e310]:
+                - strong [ref=e311]: 南京河海南自水电自动化有限公司
+                - generic [ref=e312]: 财务负责人
+              - emphasis [ref=e313]: "55"
+          - article [ref=e314]:
+            - button "迈拓仪表股份有限公司 财务负责人 55" [ref=e315] [cursor=pointer]:
+              - generic [ref=e320]:
+                - strong [ref=e321]: 迈拓仪表股份有限公司
+                - generic [ref=e322]: 财务负责人
+              - emphasis [ref=e323]: "55"
+          - article [ref=e324]:
+            - button "中船绿洲环保（南京）有限公司 财务负责人 55" [ref=e325] [cursor=pointer]:
+              - generic [ref=e330]:
+                - strong [ref=e331]: 中船绿洲环保（南京）有限公司
+                - generic [ref=e332]: 财务负责人
+              - emphasis [ref=e333]: "55"
+          - article [ref=e334]:
+            - button "南京圣诺热管有限公司 财务负责人 55" [ref=e335] [cursor=pointer]:
+              - generic [ref=e340]:
+                - strong [ref=e341]: 南京圣诺热管有限公司
+                - generic [ref=e342]: 财务负责人
+              - emphasis [ref=e343]: "55"
+          - article [ref=e344]:
+            - button "南京电研电力自动化股份有限公司 财务负责人 55" [ref=e345] [cursor=pointer]:
+              - generic [ref=e350]:
+                - strong [ref=e351]: 南京电研电力自动化股份有限公司
+                - generic [ref=e352]: 财务负责人
+              - emphasis [ref=e353]: "55"
+          - article [ref=e354]:
+            - button "南京冠石科技股份有限公司 财务负责人 55" [ref=e355] [cursor=pointer]:
+              - generic [ref=e360]:
+                - strong [ref=e361]: 南京冠石科技股份有限公司
+                - generic [ref=e362]: 财务负责人
+              - emphasis [ref=e363]: "55"
+          - article [ref=e364]:
+            - button "江苏金智科技股份有限公司 财务负责人 55" [ref=e365] [cursor=pointer]:
+              - generic [ref=e370]:
+                - strong [ref=e371]: 江苏金智科技股份有限公司
+                - generic [ref=e372]: 财务负责人
+              - emphasis [ref=e373]: "55"
+          - article [ref=e374]:
+            - button "南京国电南自维美德自动化有限公司 财务负责人 55" [ref=e375] [cursor=pointer]:
+              - generic [ref=e380]:
+                - strong [ref=e381]: 南京国电南自维美德自动化有限公司
+                - generic [ref=e382]: 财务负责人
+              - emphasis [ref=e383]: "55"
+          - article [ref=e384]:
+            - button "南京南瑞水利水电科技有限公司 财务负责人 55" [ref=e385] [cursor=pointer]:
+              - generic [ref=e390]:
+                - strong [ref=e391]: 南京南瑞水利水电科技有限公司
+                - generic [ref=e392]: 财务负责人
+              - emphasis [ref=e393]: "55"
+          - article [ref=e394]:
+            - button "南京四方亿能电力自动化有限公司 财务负责人 55" [ref=e395] [cursor=pointer]:
+              - generic [ref=e400]:
+                - strong [ref=e401]: 南京四方亿能电力自动化有限公司
+                - generic [ref=e402]: 财务负责人
+              - emphasis [ref=e403]: "55"
+          - article [ref=e404]:
+            - button "江苏久高电子科技有限公司 财务负责人 58" [ref=e405] [cursor=pointer]:
+              - generic [ref=e410]:
+                - strong [ref=e411]: 江苏久高电子科技有限公司
+                - generic [ref=e412]: 财务负责人
+              - emphasis [ref=e413]: "58"
+          - article [ref=e414]:
+            - button "南京英安特科技实业有限公司 财务负责人 58" [ref=e415] [cursor=pointer]:
+              - generic [ref=e420]:
+                - strong [ref=e421]: 南京英安特科技实业有限公司
+                - generic [ref=e422]: 财务负责人
+              - emphasis [ref=e423]: "58"
+          - article [ref=e424]:
+            - button "南京汇鑫光电材料有限公司 财务负责人 58" [ref=e425] [cursor=pointer]:
+              - generic [ref=e430]:
+                - strong [ref=e431]: 南京汇鑫光电材料有限公司
+                - generic [ref=e432]: 财务负责人
+              - emphasis [ref=e433]: "58"
+          - article [ref=e434]:
+            - button "格满林（南京）新型材料科技有限公司 财务负责人 58" [ref=e435] [cursor=pointer]:
+              - generic [ref=e440]:
+                - strong [ref=e441]: 格满林（南京）新型材料科技有限公司
+                - generic [ref=e442]: 财务负责人
+              - emphasis [ref=e443]: "58"
+          - article [ref=e444]:
+            - button "南京三超新材料股份有限公司 财务负责人 58" [ref=e445] [cursor=pointer]:
+              - generic [ref=e450]:
+                - strong [ref=e451]: 南京三超新材料股份有限公司
+                - generic [ref=e452]: 财务负责人
+              - emphasis [ref=e453]: "58"
+        - generic [ref=e454]:
+          - button "上一页" [disabled] [ref=e455]
+          - generic [ref=e458]: 1 / 4
+          - button "下一页" [ref=e459] [cursor=pointer]
+      - generic [ref=e462]:
+        - generic [ref=e463]:
+          - heading "热线索" [level=2] [ref=e464]
+          - generic [ref=e465]: CRM.hotLeads
+        - generic [ref=e466]:
+          - article [ref=e467]:
+            - strong [ref=e468]: 财务负责人
+            - generic [ref=e469]: lead
+          - article [ref=e470]:
+            - strong [ref=e471]: 财务负责人
+            - generic [ref=e472]: lead
+          - article [ref=e473]:
+            - strong [ref=e474]: 财务负责人
+            - generic [ref=e475]: lead
+          - article [ref=e476]:
+            - strong [ref=e477]: 财务负责人
+            - generic [ref=e478]: lead
+          - article [ref=e479]:
+            - strong [ref=e480]: 财务负责人
+            - generic [ref=e481]: lead
+      - generic [ref=e482]:
+        - generic [ref=e483]:
+          - heading "开放机会" [level=2] [ref=e484]
+          - generic [ref=e485]: CRM.openOpportunities
+        - generic [ref=e486]:
+          - article [ref=e487]:
+            - strong [ref=e488]: 财务负责人 / 自动化设备制造
+            - generic [ref=e489]: new
+          - article [ref=e490]:
+            - strong [ref=e491]: 财务负责人 / 生物工程
+            - generic [ref=e492]: new
+          - article [ref=e493]:
+            - strong [ref=e494]: 财务负责人 / 集成电路
+            - generic [ref=e495]: new
+          - article [ref=e496]:
+            - strong [ref=e497]: 财务负责人 / 电子/芯片
+            - generic [ref=e498]: new
+          - article [ref=e499]:
+            - strong [ref=e500]: 财务负责人 / 智能科技（可能涉及系统集成或软件）
+            - generic [ref=e501]: new
+      - generic [ref=e502]:
+        - generic [ref=e503]:
+          - heading "逾期跟进" [level=2] [ref=e504]
+          - generic [ref=e505]: CRM.overdueFollowUps
+        - generic [ref=e506]:
+          - article [ref=e507]:
+            - strong [ref=e508]: 跟进 财务负责人 对 医疗设备制造 的兴趣
+            - generic [ref=e509]: open
+          - article [ref=e510]:
+            - strong [ref=e511]: 跟进 财务负责人 对 新材料制造 的兴趣
+            - generic [ref=e512]: open
+          - article [ref=e513]:
+            - strong [ref=e514]: 跟进 财务负责人 对 新材料制造 的兴趣
+            - generic [ref=e515]: open
+          - article [ref=e516]:
+            - strong [ref=e517]: 跟进 财务负责人 对 新材料技术研发与生产 的兴趣
+            - generic [ref=e518]: open
+          - article [ref=e519]:
+            - strong [ref=e520]: 跟进 财务负责人 对 自动化科技 的兴趣
+            - generic [ref=e521]: open
+      - generic [ref=e522]:
+        - generic [ref=e523]:
+          - heading "近期跟进" [level=2] [ref=e524]
+          - generic [ref=e525]: CRM.upcomingFollowUps
+        - generic [ref=e526]: 暂无数据
+      - generic [ref=e531]:
+        - generic [ref=e532]:
+          - heading "风险客户" [level=2] [ref=e533]
+          - generic [ref=e534]: CRM.riskContacts
+        - generic [ref=e535]:
+          - article [ref=e536]:
+            - strong [ref=e537]: 财务负责人
+            - generic [ref=e538]: lead
+          - article [ref=e539]:
+            - strong [ref=e540]: 财务负责人
+            - generic [ref=e541]: lead
+          - article [ref=e542]:
+            - strong [ref=e543]: 财务负责人
+            - generic [ref=e544]: lead
+          - article [ref=e545]:
+            - strong [ref=e546]: 财务负责人
+            - generic [ref=e547]: lead
+          - article [ref=e548]:
+            - strong [ref=e549]: 财务负责人
+            - generic [ref=e550]: lead

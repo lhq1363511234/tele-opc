@@ -8,7 +8,7 @@ const formatZodError = (error: ZodError) =>
 export function registerAppOSGateway(app: FastifyInstance<any, any, any, any>, service: AppOSGatewayService) {
   app.post('/api/appos/contracts', async (request, reply) => {
     try {
-      return { ok: true, ...service.createContract(request.body) };
+      return { ok: true, ...(await service.createContract(request.body)) };
     } catch (error) {
       if (error instanceof ZodError) {
         reply.code(400);
@@ -20,7 +20,7 @@ export function registerAppOSGateway(app: FastifyInstance<any, any, any, any>, s
 
   app.post('/api/appos/events', async (request, reply) => {
     try {
-      return { ok: true, event: service.storeEvent(request.body) };
+      return { ok: true, event: await service.storeEvent(request.body) };
     } catch (error) {
       if (error instanceof ZodError) {
         reply.code(400);
@@ -31,14 +31,12 @@ export function registerAppOSGateway(app: FastifyInstance<any, any, any, any>, s
   });
 
   app.get<{ Params: { id: string } }>('/api/appos/runs/:id', async (request, reply) => {
-    const run = service.getRun(request.params.id);
+    const run = await service.getRun(request.params.id);
     if (!run) {
       reply.code(404);
       return { ok: false, error: 'workflow run not found' };
     }
-    const events = service
-      .listEvents()
-      .filter((event) => event.localObjectType === 'workflow_run' && event.localObjectId === run.id);
+    const events = await service.listEventsForRun(run.id);
     return { ok: true, run, events };
   });
 
@@ -51,7 +49,7 @@ export function registerAppOSGateway(app: FastifyInstance<any, any, any, any>, s
       externalExecutionId?: string;
     };
   }>('/api/appos/webhooks/n8n/run-callback', async (request, reply) => {
-    const result = service.updateRunFromN8nCallback(request.body);
+    const result = await service.updateRunFromN8nCallback(request.body);
     if (!result) {
       reply.code(404);
       return { ok: false, error: 'workflow run not found' };

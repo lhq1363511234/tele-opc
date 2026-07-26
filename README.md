@@ -1123,3 +1123,8 @@ Docker 镜像启动失败：
 - [V2_IMPLEMENTATION_ROADMAP.zh-CN.md](./V2_IMPLEMENTATION_ROADMAP.zh-CN.md)
 
 如果一个功能不符合长期计划或实施路线图，先更新文档，再写代码。
+
+
+## Paperclip 集成
+
+Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issue 编排，Tele-OPC 负责执行、Telegram、飞书台账和经营数据。详见 [`docs/PAPERCLIP_INTEGRATION.md`](docs/PAPERCLIP_INTEGRATION.md)。

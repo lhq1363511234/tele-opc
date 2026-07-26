@@ -8,10 +8,12 @@ import { TelegramUpdateHandler } from './telegram/handler.js';
 import type { TelegramUpdate } from './telegram/types.js';
 import { registerWebConsole } from './webConsole.js';
 import { registerAppOSGateway } from './appos/gateway/routes.js';
-import { AppOSGatewayService } from './appos/gateway/service.js';
+import { AppOSGatewayService, InMemoryAppOSStore, PostgresAppOSStore } from './appos/gateway/service.js';
+import { AppOSRepository } from './db/apposRepository.js';
 import { registerInbeidouCpsRoutes } from './appos/domains/cps/inbeidou-module.js';
 import { registerMoboboostCpsRoutes } from './appos/domains/cps/moboboost-module.js';
 import { registerDependencyRegistryRoutes } from './appos/dependencies/registry.js';
+import { registerPaperclipRoutes } from './integrations/paperclip/routes.js';
 
 export function createApp(config: AppConfig) {
   const app = Fastify({
@@ -20,10 +22,14 @@ export function createApp(config: AppConfig) {
 
   const repos = new Repositories(pool);
   const telegramHandler = new TelegramUpdateHandler(config, repos);
-  const appOSGateway = new AppOSGatewayService();
+  const appOSStore = config.app.env === 'test'
+    ? new InMemoryAppOSStore()
+    : new PostgresAppOSStore(new AppOSRepository(pool));
+  const appOSGateway = new AppOSGatewayService(appOSStore);
   registerWebConsole(app, config, repos);
   registerAppOSGateway(app, appOSGateway);
   registerDependencyRegistryRoutes(app);
+  registerPaperclipRoutes(app, config, repos);
   registerInbeidouCpsRoutes(app);
   registerMoboboostCpsRoutes(app);
 
