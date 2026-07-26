@@ -4266,3 +4266,103 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+.quick-entry-panel {
+  grid-column: 1 / -1;
+}
+
+.quick-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.quick-entry-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.quick-entry-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.quick-entry-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.quick-entry-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.quick-entry-form label.full {
+  grid-column: 1 / -1;
+}
+
+.quick-entry-form label > span {
+  color: var(--muted);
+}
+
+.quick-entry-form input,
+.quick-entry-form select,
+.quick-entry-form textarea {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcf8;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.quick-entry-form textarea {
+  resize: vertical;
+}
+
+.quick-entry-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quick-entry-actions button {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.quick-entry-actions button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-entry-ok {
+  color: #1f7a55;
+}
+
+@media (max-width: 640px) {
+  .quick-entry-form {
+    grid-template-columns: 1fr;
+  }
+}

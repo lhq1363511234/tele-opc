@@ -22,7 +22,8 @@ import { buildFeishuMirror } from './appos/feishu/ledger-mirror.js';
 import { LedgerSync } from './appos/feishu/ledger-sync.js';
 import { buildBusinessAnalytics } from './web/analytics.js';
 import { registerPaperclipWebRoutes } from './integrations/paperclip/web-routes.js';
-import { registerASelfWebRoutes } from './a-self/web-routes.js';
+import { registerASelfWebRoutes, registerASelfActionsRoutes } from './a-self/web-routes.js';
+import { registerBusinessActionRoutes } from './web/actions-routes.js';
 
 const apiLimitSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30)
@@ -119,6 +120,8 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   const customerEmailSender = CustomerEmailSender.fromEnv();
   registerPaperclipWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerASelfWebRoutes(app, repos, allowWebConsoleAccess);
+  registerASelfActionsRoutes(app, config, repos, allowWebConsoleAccess);
+  registerBusinessActionRoutes(app, repos, allowWebConsoleAccess);
 
   app.get('/api/web/session', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,

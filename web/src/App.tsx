@@ -37,6 +37,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tan
 import { AgentNetwork } from './components/AgentNetwork';
 import { PaperclipGovernance } from './components/PaperclipGovernance';
 import { ASelfConsole } from './components/ASelfConsole';
+import { QuickEntry, type QuickEntryConfig } from './components/QuickEntry';
 import { ApiError, apiGet, apiPost, apiPut, getWebConsoleDevToken, setWebConsoleDevToken } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
 import {
@@ -606,6 +607,80 @@ function NavGroup({
   );
 }
 
+const crmQuickEntry: QuickEntryConfig = {
+  title: '录入新线索',
+  hint: '写入 contacts / opportunities / follow_ups，立即出现在下方看板',
+  submitLabel: '新建线索',
+  endpoint: '/api/web/crm/leads',
+  invalidateKeys: ['dashboard', 'overview', 'ops-insights'],
+  successText: '线索已创建',
+  fields: [
+    { id: 'name', label: '客户姓名', placeholder: '张三', required: true },
+    { id: 'organizationName', label: '公司', placeholder: '某某科技' },
+    { id: 'interest', label: '意向', placeholder: 'Agent OS 部署' },
+    { id: 'note', label: '备注', type: 'textarea', placeholder: '来源、需求、下一步', required: true }
+  ],
+  buildBody: (v) => ({
+    name: v.name.trim(),
+    organizationName: v.organizationName.trim() || undefined,
+    interest: v.interest.trim() || undefined,
+    note: v.note.trim()
+  })
+};
+
+const calendarQuickEntry: QuickEntryConfig = {
+  title: '安排日程',
+  hint: '写入 calendar_events，需要准备时自动生成会议准备note',
+  submitLabel: '新建日程',
+  endpoint: '/api/web/calendar/events',
+  invalidateKeys: ['dashboard', 'overview'],
+  successText: '日程已创建',
+  fields: [
+    { id: 'title', label: '标题', placeholder: '与客户对齐方案', required: true },
+    { id: 'startsAt', label: '开始时间', type: 'datetime-local', required: true },
+    { id: 'endsAt', label: '结束时间', type: 'datetime-local', required: true },
+    { id: 'location', label: '地点', placeholder: '线上 / 会议室' },
+    { id: 'attendees', label: '参与人', placeholder: '逗号分隔' },
+    { id: 'needsPrep', label: '需要会前准备', type: 'select', options: [{ value: 'no', label: '否' }, { value: 'yes', label: '是' }] },
+    { id: 'description', label: '说明', type: 'textarea', placeholder: '议题和目标' }
+  ],
+  buildBody: (v) => ({
+    title: v.title.trim(),
+    startsAt: new Date(v.startsAt).toISOString(),
+    endsAt: new Date(v.endsAt).toISOString(),
+    location: v.location.trim() || undefined,
+    attendees: v.attendees.split(/[,，]/).map((a) => a.trim()).filter(Boolean),
+    description: v.description.trim(),
+    needsPrep: v.needsPrep === 'yes'
+  })
+};
+
+const financeQuickEntry: QuickEntryConfig = {
+  title: '记一笔账',
+  hint: '写入 transactions / invoices / subscriptions，现金流指标实时更新',
+  submitLabel: '记账',
+  endpoint: '/api/web/finance/entries',
+  invalidateKeys: ['finance-dashboard', 'overview', 'analytics', 'ops-insights'],
+  successText: '已入账',
+  fields: [
+    { id: 'direction', label: '类型', type: 'select', options: [{ value: 'income', label: '收入' }, { value: 'expense', label: '支出' }] },
+    { id: 'amount', label: '金额', type: 'number', placeholder: '8800', required: true },
+    { id: 'currency', label: '币种', defaultValue: 'CNY' },
+    { id: 'counterparty', label: '对方', placeholder: '客户 / 供应商' },
+    { id: 'category', label: '科目', placeholder: '服务收入 / 云服务' },
+    { id: 'description', label: '摘要', type: 'textarea', placeholder: '这笔钱是什么', required: true }
+  ],
+  buildBody: (v) => ({
+    kind: 'transaction',
+    direction: v.direction === 'expense' ? 'expense' : 'income',
+    amount: Number(v.amount),
+    currency: v.currency.trim() || 'CNY',
+    counterparty: v.counterparty.trim() || undefined,
+    category: v.category.trim() || undefined,
+    description: v.description.trim()
+  })
+};
+
 function RouteView({
   route,
   overview,
@@ -635,7 +710,7 @@ function RouteView({
     case 'mini':
       return <MiniAppPage />;
     case 'crm':
-      return <DashboardPage title="CRM" endpoint="/api/web/crm" miniPanel="crm" sections={[
+      return <DashboardPage title="CRM" endpoint="/api/web/crm" miniPanel="crm" quickEntry={crmQuickEntry} sections={[
         ['热线索', 'hotLeads'],
         ['开放机会', 'openOpportunities'],
         ['逾期跟进', 'overdueFollowUps'],
@@ -653,7 +728,7 @@ function RouteView({
     case 'finance':
       return <FinancePage />;
     case 'calendar':
-      return <DashboardPage title="Calendar" endpoint="/api/web/calendar" sections={[
+      return <DashboardPage title="Calendar" endpoint="/api/web/calendar" quickEntry={calendarQuickEntry} sections={[
         ['今日日程', 'todayEvents'],
         ['明日日程', 'tomorrowEvents'],
         ['冲突', 'conflicts'],
@@ -1337,12 +1412,14 @@ function DashboardPage({
   title,
   endpoint,
   sections,
-  miniPanel
+  miniPanel,
+  quickEntry
 }: {
   title: string;
   endpoint: string;
   sections: Array<[string, string]>;
   miniPanel?: MiniPanelKind;
+  quickEntry?: QuickEntryConfig;
 }) {
   const panel = usePanelParam();
   const query = useQuery({
@@ -1355,6 +1432,7 @@ function DashboardPage({
   return (
     <div className="dashboard-grid">
       {showMiniPanel ? <MiniAppActionPanel kind={miniPanel!} /> : null}
+      {quickEntry ? <QuickEntry config={quickEntry} /> : null}
       <section className="dashboard-summary">
         {sections.map(([label, key]) => (
           <article key={key}>
@@ -1841,8 +1919,8 @@ function ApprovalCenterPanel() {
   });
   const decision = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
-      apiPost<WebCommandResponse>('/api/web/command', {
-        text: `/${action} ${id}`
+      apiPost<{ ok: boolean }>(`/api/web/approvals/${id}/decide`, {
+        decision: action === 'approve' ? 'approved' : 'rejected'
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['approvals'] });
@@ -1870,7 +1948,6 @@ function ApprovalCenterPanel() {
         ))}
       </div>
       {!approvals.data?.approvals?.length ? <EmptyState text="当前没有待审批事项" /> : null}
-      {decision.data ? <TaskSubmissionCard response={decision.data} /> : null}
     </section>
   );
 }
@@ -2122,6 +2199,7 @@ function FinancePage() {
     <div className="dashboard-grid finance-grid">
       {panel === 'approvals' ? <ApprovalCenterPanel /> : null}
       {panel === 'import' ? <MiniAppActionPanel kind="financeImport" /> : null}
+      <QuickEntry config={financeQuickEntry} />
       <section className="metric-grid wide">
         <MetricCard label="本月收入" value={formatMoney(dashboard.monthlyIncome, currency)} icon={CircleDollarSign} />
         <MetricCard label="本月支出" value={formatMoney(dashboard.monthlyExpenses, currency)} icon={CircleDollarSign} />
