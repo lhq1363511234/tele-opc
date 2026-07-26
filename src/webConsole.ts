@@ -317,6 +317,18 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     dashboard: await repos.getCrmDashboard()
   }));
 
+  app.get<{ Querystring: { q?: string; limit?: string; offset?: string } }>(
+    '/api/web/crm/lead-list',
+    { preHandler: allowWebConsoleAccess },
+    async (request) => {
+      const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
+      const offset = Math.max(0, Number(request.query.offset) || 0);
+      const query = request.query.q?.trim() || undefined;
+      const result = await repos.searchLeads({ query, limit, offset });
+      return { ok: true, limit, offset, query: query ?? '', ...result };
+    }
+  );
+
   app.get('/api/web/mail', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,
     dashboard: await repos.getMailDashboard()

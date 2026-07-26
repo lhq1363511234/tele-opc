@@ -3456,6 +3456,46 @@ export class Repositories {
     return result.rows as EmailDraftRecord[];
   }
 
+  /** Full lead list with search + pagination, for browsing large prospecting batches. */
+  async searchLeads(params: { query?: string; limit: number; offset: number }) {
+    const filters: string[] = ["contacts.status = 'lead'"];
+    const values: unknown[] = [];
+    if (params.query) {
+      values.push(`%${params.query}%`);
+      filters.push(
+        `(contacts.name ILIKE $${values.length} OR contacts.notes ILIKE $${values.length} OR organizations.name ILIKE $${values.length})`
+      );
+    }
+    const where = filters.join(' AND ');
+
+    const totalResult = await this.pool.query(
+      `
+      SELECT count(*)::int AS total
+      FROM contacts
+      LEFT JOIN organizations ON organizations.id = contacts.organization_id
+      WHERE ${where}
+      `,
+      values
+    );
+
+    const rows = await this.pool.query(
+      `
+      SELECT contacts.*, organizations.name AS organization_name
+      FROM contacts
+      LEFT JOIN organizations ON organizations.id = contacts.organization_id
+      WHERE ${where}
+      ORDER BY contacts.created_at DESC
+      LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+      `,
+      [...values, params.limit, params.offset]
+    );
+
+    return {
+      total: totalResult.rows[0]?.total ?? 0,
+      leads: rows.rows as ContactRecord[]
+    };
+  }
+
   private async listHotLeads(limit: number) {
     const result = await this.pool.query(
       `

@@ -32,12 +32,13 @@ import {
   XCircle
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { AgentNetwork } from './components/AgentNetwork';
 import { PaperclipGovernance } from './components/PaperclipGovernance';
 import { ASelfConsole } from './components/ASelfConsole';
 import { QuickEntry, type QuickEntryConfig } from './components/QuickEntry';
+import { LeadBrowser } from './components/LeadBrowser';
 import { DeckStudio } from './components/studio/DeckStudio';
 import { MailStudio } from './components/studio/MailStudio';
 import { CrmImportStudio } from './components/studio/CrmImportStudio';
@@ -717,7 +718,7 @@ function RouteView({
     case 'mini':
       return <MiniAppPage />;
     case 'crm':
-      return <DashboardPage title="CRM" endpoint="/api/web/crm" miniPanel="crm" quickEntry={crmQuickEntry} sections={[
+      return <DashboardPage title="CRM" endpoint="/api/web/crm" miniPanel="crm" quickEntry={crmQuickEntry} extra={<LeadBrowser />} sections={[
         ['热线索', 'hotLeads'],
         ['开放机会', 'openOpportunities'],
         ['逾期跟进', 'overdueFollowUps'],
@@ -1420,13 +1421,15 @@ function DashboardPage({
   endpoint,
   sections,
   miniPanel,
-  quickEntry
+  quickEntry,
+  extra
 }: {
   title: string;
   endpoint: string;
   sections: Array<[string, string]>;
   miniPanel?: MiniPanelKind;
   quickEntry?: QuickEntryConfig;
+  extra?: ReactNode;
 }) {
   const panel = usePanelParam();
   const query = useQuery({
@@ -1448,6 +1451,7 @@ function DashboardPage({
           </article>
         ))}
       </section>
+      {extra}
       {sections.map(([label, key]) => (
         <section className="panel" key={key}>
           <PanelHeader title={label} hint={`${title}.${key}`} />
