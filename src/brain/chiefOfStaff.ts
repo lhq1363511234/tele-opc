@@ -3,6 +3,7 @@ import type { AgentRunResult, AgentRunner } from '../ai/agentRunner.js';
 import { buildCoreAgentTools } from '../ai/agentTools.js';
 import { buildCapabilityTools } from '../ai/capabilityTools.js';
 import { buildExternalActionTools } from '../ai/externalActionTools.js';
+import { buildWorkspaceTools } from '../ai/workspaceTools.js';
 import { systemPromptForAgent } from '../ai/agentPrompts.js';
 import { isBrowserDashboardRequest, parseBrowserInstruction } from '../browser/browserIntake.js';
 import { isCalendarDashboardRequest, parseCalendarInstruction } from '../calendar/calendarIntake.js';
@@ -297,10 +298,16 @@ export class ChiefOfStaff {
 
     // Goal decomposition only applies to genuine new work items. Content and
     // domain-record routes have their own handlers and must not burn a run here.
-    const structuredPlan = (chiefIntent?.route === 'task'
+    const aiPlan = chiefIntent?.route === 'task'
       ? await this.planGoalWithAI(intake.normalizedText, context)
-      : null)
-      ?? createTaskPlan(intake.normalizedText);
+      : null;
+    // When the AI planner deliberately declines, the request is a single action
+    // and must run as one task. Falling back to the keyword planner here made
+    // "做个实时算报价的页面" get shredded into a CRM + quote workflow purely
+    // because the words 客户 and 报价 appeared.
+    const structuredPlan = aiPlan === 'single_action'
+      ? null
+      : aiPlan ?? createTaskPlan(intake.normalizedText);
 
     if (
       chiefIntent?.targetWorkflow === 'market_scan'
@@ -1533,7 +1540,8 @@ export class ChiefOfStaff {
         tools: [
           ...buildCoreAgentTools(this.repos, { chatId: context.chatId }),
           ...buildCapabilityTools(this.repos, { taskId }),
-          ...buildExternalActionTools(this.repos, { ...this.externalActionOptions, taskId })
+          ...buildExternalActionTools(this.repos, { ...this.externalActionOptions, taskId }),
+          ...buildWorkspaceTools(this.repos, { taskId })
         ],
         maxToolRounds: 5,
         metadata: {
@@ -2233,7 +2241,8 @@ export class ChiefOfStaff {
    * agent instead of punctuation splitting. Returns null when the request is
    * not a goal (short chatter, single action) so the regex planner still runs.
    */
-  private async planGoalWithAI(text: string, context: BrainContext): Promise<TaskPlan | null> {
+  /** Returns 'single_action' when the request should stay one task. */
+  private async planGoalWithAI(text: string, context: BrainContext): Promise<TaskPlan | 'single_action' | null> {
     if (!this.agentRunner) return null;
     if (text.trim().length < 24) return null;
 
@@ -2290,7 +2299,7 @@ export class ChiefOfStaff {
         steps?: Array<{ title?: string; description?: string; owner?: string }>;
       };
 
-      if (parsed.isGoal === false) return null;
+      if (parsed.isGoal === false) return 'single_action';
       const steps = (parsed.steps ?? [])
         .filter((step) => typeof step.title === 'string' && step.title.trim().length >= 4)
         .slice(0, 6)
@@ -2299,7 +2308,7 @@ export class ChiefOfStaff {
           description: (step.description ?? step.title ?? '').trim().slice(0, 600),
           ownerAgent: knownAgents.includes(step.owner ?? '') ? (step.owner as string) : 'chief_of_staff'
         }));
-      if (steps.length < 2) return null;
+      if (steps.length < 2) return 'single_action';
 
       return {
         goal: (parsed.goal ?? text).slice(0, 200),
@@ -3839,7 +3848,12 @@ export class ChiefOfStaff {
   }
 
   private createDraftIfUseful(text: string, context: DraftContext) {
-    if (!/邮件|email|跟进|客户|联系/i.test(text)) return null;
+    // Merely mentioning 客户 or 跟进 is not a request for an email. A task like
+    // "按客户汇总金额的脚本" used to come back with an unrelated follow-up draft.
+    const wantsEmail = /(写|起草|拟|生成|准备|发送?|回)\s*(一?[封个份])?[^。；;\n]{0,8}?(邮件|email|mail)/i.test(text)
+      || /(邮件|email)\s*(草稿|模板|回复)/i.test(text)
+      || /(跟进|联系|回复)\s*(一下)?\s*(这个)?\s*客户/.test(text);
+    if (!wantsEmail) return null;
     const recipient = extractRecipient(text);
     const defaultDraft = [
       '主题：跟进上次沟通',

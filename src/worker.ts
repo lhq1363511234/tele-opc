@@ -10,6 +10,7 @@ import { AgentRunner } from './ai/agentRunner.js';
 import { systemPromptForAgent } from './ai/agentPrompts.js';
 import { buildCapabilityTools } from './ai/capabilityTools.js';
 import { buildExternalActionTools, runApprovedAction } from './ai/externalActionTools.js';
+import { buildWorkspaceTools } from './ai/workspaceTools.js';
 import { createModelProviderFromConfig } from './ai/modelProvider.js';
 import { logger } from './logger.js';
 import { BullMqTaskDispatcher, parseRedisConnection, taskQueueName, type TaskJobData } from './queue/taskQueue.js';
@@ -564,12 +565,16 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
       '- save_lead：把真实找到的新线索写进 CRM',
       '- save_deliverable：把长报告或要复用的产出存成交付物',
       '- send_email / write_feishu_table：真实对外动作，会先拦下来等老板批准，所以要写最终版本，不要写占位内容',
+      '- write_file / read_file / list_workspace / run_command：工作区，真的把东西做出来并跑起来验证',
+      '- 工作区跟本任务的其他步骤共用：动手前先 list_workspace 看前面几步做到哪了，在已有文件上改，不要从零重做一份',
+      '- publish_deliverable：把工作区文件发布成老板能点开的交付物，HTML 自动变成实时预览',
       '',
       '硬性要求：',
       '- 需要外部事实（价格、市场、某家公司情况）时必须先用工具查，查到什么说什么',
       '- 直接给结论和产出，不要写"我将会…"这类计划体',
       '- 引用具体的公司名、数字、渠道，不允许泛泛而谈',
       '- 缺少必要信息就明确说缺什么、下一步怎么补，不要编造',
+      '- 这一步的成果如果是一个"东西"（网页、代码、脚本、表格、数据、文档），就在工作区里做出来并 publish_deliverable，不要只交计划',
       '- 必须由本人亲自做的动作（付款、签字、实名收款）单独标出「需要你本人操作」',
       '- 最后给人看的回复控制在 300 字以内，中文，不要客套'
     ].filter(Boolean).join('\n'),
@@ -579,9 +584,12 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
     },
     tools: [
       ...buildCapabilityTools(repos, { taskId: task.id }),
-      ...buildExternalActionTools(repos, { ...externalActionOptions, taskId: task.id })
+      ...buildExternalActionTools(repos, { ...externalActionOptions, taskId: task.id }),
+      ...buildWorkspaceTools(repos, { taskId: task.id, workspaceId: parent?.id ?? task.id })
     ],
-    maxToolRounds: 6,
+    // Producing a real artifact costs several rounds (research, write each
+    // file, verify, publish), so this ceiling is higher than a chat answer's.
+    maxToolRounds: 14,
     metadata: {
       workflow: 'operating_step',
       source: 'worker_operating_executor',
