@@ -32,16 +32,18 @@ export async function webSearch(query: string, limit = 8): Promise<SearchHit[]> 
   }
 }
 
-export async function readPage(url: string, maxChars = 6000): Promise<string> {
+export async function readPage(url: string, maxChars = 12000): Promise<string> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch(`${READER}${url}`, {
       signal: controller.signal,
       headers: { 'user-agent': 'Tele-OPC-OS/0.1 lead-research' }
     });
     if (!response.ok) return '';
-    return stripBoilerplate(await response.text()).slice(0, maxChars);
+    const text = await response.text();
+    if (/Warning: This page maybe requiring CAPTCHA|Target URL returned error 4\d\d/i.test(text.slice(0, 400))) return '';
+    return stripBoilerplate(text).slice(0, maxChars);
   } catch {
     return '';
   } finally {
@@ -54,7 +56,7 @@ export async function readPage(url: string, maxChars = 6000): Promise<string> {
  * Keep lines that read like prose so the model sees actual company mentions.
  */
 function stripBoilerplate(markdown: string): string {
-  return markdown
+  const lines = markdown
     .split(/\r?\n/)
     .map((line) => line.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim())
     .filter((line) => {
@@ -62,8 +64,22 @@ function stripBoilerplate(markdown: string): string {
       if (/^(Title|URL Source|Markdown Content|Published Time):/i.test(line)) return false;
       const letters = line.replace(/[^\u4e00-\u9fa5a-zA-Z]/g, '').length;
       return letters / line.length > 0.45;
-    })
-    .join('\n');
+    });
+
+  // Portal articles end with a "recommended reading" tail of unrelated headlines.
+  // Once several consecutive heading lines appear, the real content is over.
+  let headingStreak = 0;
+  const body: string[] = [];
+  for (const line of lines) {
+    if (/^#{1,6}\s/.test(line)) {
+      headingStreak += 1;
+      if (headingStreak >= 4) break;
+    } else {
+      headingStreak = 0;
+    }
+    body.push(line);
+  }
+  return body.join('\n');
 }
 
 function parseReaderMarkdown(markdown: string): SearchHit[] {
