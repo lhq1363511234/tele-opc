@@ -71,21 +71,21 @@ import type {
 } from './types';
 
 const navItems: Array<{ id: RouteId; label: string; icon: typeof LayoutDashboard }> = [
-  { id: 'mission', label: 'Mission Control', icon: LayoutDashboard },
   { id: 'aself', label: 'A- 数字自我', icon: Brain },
   { id: 'paperclip', label: 'Paperclip 治理', icon: Building2 },
+  { id: 'mission', label: '执行监控', icon: LayoutDashboard },
+  { id: 'tasks', label: '执行任务', icon: Workflow },
   { id: 'agents', label: 'Agents', icon: Bot },
-  { id: 'tasks', label: 'Tasks', icon: Workflow },
-  { id: 'mini', label: 'Mini App', icon: Sparkles },
+  { id: 'ops', label: '经营分析', icon: BarChart3 },
   { id: 'crm', label: 'CRM', icon: Users },
   { id: 'mail', label: 'Mail', icon: Mail },
   { id: 'finance', label: 'Finance', icon: CircleDollarSign },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'browser', label: 'Browser', icon: Eye },
-  { id: 'ops', label: '经营分析', icon: BarChart3 },
+  { id: 'mini', label: 'Mini App', icon: Sparkles },
   { id: 'dependencies', label: 'Dependencies', icon: Settings },
   { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'debug', label: 'Mini App Debug', icon: Info }
+  { id: 'debug', label: 'Debug', icon: Info }
 ];
 
 const miniAppEntries: Array<{ kind: MiniPanelKind; label: string; description: string }> = [
