@@ -37,7 +37,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tan
 import { AgentNetwork } from './components/AgentNetwork';
 import { PaperclipGovernance } from './components/PaperclipGovernance';
 import { ASelfConsole } from './components/ASelfConsole';
-import { apiGet, apiPost, apiPut } from './api';
+import { ApiError, apiGet, apiPost, apiPut, getWebConsoleDevToken, setWebConsoleDevToken } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
 import {
   isMiniPanelKind,
@@ -354,7 +354,12 @@ function HomePage() {
 
 
 function ConnectionErrorScreen({ error }: { error: unknown }) {
+  const status = error instanceof ApiError ? error.status : 0;
   const message = error instanceof Error ? error.message : '';
+
+  if (status === 401 || status === 403) {
+    return <ConsoleLoginScreen />;
+  }
 
   return (
     <main className="login-screen">
@@ -368,6 +373,57 @@ function ConnectionErrorScreen({ error }: { error: unknown }) {
         <button type="button" className="ghost-button" onClick={() => window.location.reload()}>
           刷新连接
         </button>
+      </motion.section>
+    </main>
+  );
+}
+
+function ConsoleLoginScreen() {
+  const [token, setToken] = useState(() => getWebConsoleDevToken());
+  const [checking, setChecking] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const value = token.trim();
+    if (!value || checking) return;
+    setChecking(true);
+    setFailed(false);
+    setWebConsoleDevToken(value);
+    try {
+      await apiGet('/api/web/session');
+      window.location.reload();
+    } catch {
+      setWebConsoleDevToken('');
+      setFailed(true);
+      setChecking(false);
+    }
+  };
+
+  return (
+    <main className="login-screen">
+      <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="login-panel">
+        <div className="login-mark">
+          <ShieldCheck size={24} />
+        </div>
+        <h1>Tele-OPC Console</h1>
+        <p>
+          在浏览器直接访问需要访问口令。从 Telegram Mini App 打开会自动登录。
+        </p>
+        <form className="login-form" onSubmit={submit}>
+          <input
+            type="password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="访问口令 (WEB_CONSOLE_DEV_TOKEN)"
+            autoFocus
+            autoComplete="current-password"
+          />
+          <button type="submit" className="ghost-button" disabled={checking || !token.trim()}>
+            {checking ? '验证中…' : '进入控制台'}
+          </button>
+        </form>
+        {failed ? <p className="form-error">口令不正确，请重新输入。</p> : null}
       </motion.section>
     </main>
   );

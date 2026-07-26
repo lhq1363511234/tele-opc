@@ -12,6 +12,24 @@ export function getTelegramInitData() {
   return (window as any).Telegram?.WebApp?.initData ?? '';
 }
 
+export function getWebConsoleDevToken() {
+  const tokenFromUrl = new URLSearchParams(window.location.search).get('dev_token')?.trim() ?? '';
+  if (tokenFromUrl) {
+    window.localStorage.setItem('teleOpcDevToken', tokenFromUrl);
+    return tokenFromUrl;
+  }
+  return window.localStorage.getItem('teleOpcDevToken')?.trim() ?? '';
+}
+
+export function setWebConsoleDevToken(token: string) {
+  const value = token.trim();
+  if (value) {
+    window.localStorage.setItem('teleOpcDevToken', value);
+  } else {
+    window.localStorage.removeItem('teleOpcDevToken');
+  }
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   return apiRequest<T>(path);
 }
@@ -30,13 +48,22 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method: 'PATCH',
+    body: JSON.stringify(body)
+  });
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const telegramInitData = getTelegramInitData();
+  const devToken = getWebConsoleDevToken();
   const response = await fetch(path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(telegramInitData ? { 'X-Telegram-Init-Data': telegramInitData } : {}),
+      ...(devToken ? { 'X-Tele-OPC-Dev-Token': devToken } : {}),
       ...(init.headers ?? {})
     }
   });

@@ -4240,3 +4240,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .a-self-hero-actions button { flex: 1; min-height: 44px; }
   .a-self-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-form input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcf8;
+  font: inherit;
+  color: inherit;
+}
+
+.login-form input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.login-form button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

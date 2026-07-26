@@ -39,7 +39,6 @@ export function registerASelfWebRoutes(
   allowWebConsoleAccess: any
 ) {
   const routeOptions = { preHandler: allowWebConsoleAccess };
-
   app.get('/api/web/a-self', routeOptions, async () => buildASelfDashboard(repos));
 
   app.post<{ Body: unknown }>('/api/web/a-self/memory', routeOptions, async (request, reply) => {
@@ -139,4 +138,22 @@ async function buildASelfDashboard(repos: Repositories) {
       { phase: '复制经营能力', status: opcRuns.length ? 'in_progress' : 'planned', description: '早晨市场扫描，晚上经营总结，连接 OPC 公司环境。' }
     ]
   };
+}
+import { runASelfMorningScan, runASelfEveningSummary } from './engine.js';
+import { runPersonaDistillation } from './distill.js';
+
+export function registerASelfActionsRoutes(app: any, config: any, repos: Repositories, allowWebConsoleAccess: any) {
+  const routeOptions = { preHandler: allowWebConsoleAccess };
+  app.post('/api/web/a-self/distill', routeOptions, async () => {
+    const profile = await runPersonaDistillation(repos, config);
+    return { ok: true, profile };
+  });
+  app.post('/api/web/a-self/run-morning', routeOptions, async () => {
+    const run = await runASelfMorningScan(repos);
+    return { ok: true, run };
+  });
+  app.post('/api/web/a-self/run-evening', routeOptions, async () => {
+    const run = await runASelfEveningSummary(repos);
+    return { ok: true, run };
+  });
 }
