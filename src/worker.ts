@@ -15,15 +15,67 @@ import { TelegramClient } from './telegram/client.js';
 import { buildTaskDetailCard } from './telegram/ux.js';
 import type { TaskRecord } from './types.js';
 import { workStrategyFromMetadata, type TaskPublicBrief, type WorkStrategy } from './work/workStrategy.js';
+import { buildFeishuMirror } from './appos/feishu/ledger-mirror.js';
+import { LedgerSync } from './appos/feishu/ledger-sync.js';
+import { PaperclipBridge } from './integrations/paperclip/bridge.js';
+import { runLeadCampaign, type CampaignLead } from './prospecting/leadCampaign.js';
 
 const config = loadConfig();
 const repos = new Repositories(pool);
 const browserRunner = new LocalBrowserRunner(repos);
 const campaignEmailSender = new CampaignEmailSender(repos);
 const taskDispatcher = new BullMqTaskDispatcher(config.redis.url);
+const paperclipBridge = new PaperclipBridge(config, repos, taskDispatcher);
 const telegramClient = new TelegramClient(config.telegram.botToken);
 const modelProvider = createModelProviderFromConfig(config);
 const contentAgentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
+const feishuMirror = buildFeishuMirror({
+  publicBaseUrl: config.app.publicBaseUrl,
+  appId: config.feishu.appId || undefined,
+  appSecret: config.feishu.appSecret || undefined,
+  appToken: config.feishu.baseAppToken || undefined,
+  baseUrl: config.feishu.openBaseUrl
+});
+const ledgerSync = new LedgerSync(repos, feishuMirror);
+let ledgerSyncRunning = false;
+let ledgerSyncTimer: NodeJS.Timeout | null = null;
+
+async function runAutomaticLedgerSync(trigger: 'startup' | 'interval' | 'task_completed') {
+  if (!config.feishu.mirrorEnabled || feishuMirror.mode !== 'openapi' || ledgerSyncRunning) return;
+  ledgerSyncRunning = true;
+  const startedAt = Date.now();
+  try {
+    const summary = await ledgerSync.run({ taskLimit: 100, approvalLimit: 100, leadLimit: 100, artifactLimit: 100, analyticsLimit: 20 });
+    const totals = Object.values(summary.counts).reduce(
+      (acc, count) => ({
+        attempted: acc.attempted + count.attempted,
+        created: acc.created + count.created,
+        updated: acc.updated + count.updated,
+        failed: acc.failed + count.failed
+      }),
+      { attempted: 0, created: 0, updated: 0, failed: 0 }
+    );
+    logger.info({ trigger, durationMs: Date.now() - startedAt, totals }, 'Feishu ledger auto sync completed');
+  } catch (error) {
+    logger.warn({ trigger, error: error instanceof Error ? error.message : String(error) }, 'Feishu ledger auto sync failed');
+  } finally {
+    ledgerSyncRunning = false;
+  }
+}
+
+function startAutomaticLedgerSync() {
+  if (!config.feishu.mirrorEnabled || feishuMirror.mode !== 'openapi') {
+    logger.info({ enabled: config.feishu.mirrorEnabled, mode: feishuMirror.mode }, 'Feishu ledger auto sync disabled');
+    return;
+  }
+  const intervalMs = config.feishu.autoSyncIntervalMs;
+  const startupTimer = setTimeout(() => void runAutomaticLedgerSync('startup'), 5000);
+  startupTimer.unref();
+  ledgerSyncTimer = setInterval(() => void runAutomaticLedgerSync('interval'), intervalMs);
+  ledgerSyncTimer.unref();
+  logger.info({ intervalMs }, 'Feishu ledger auto sync enabled');
+}
+
 
 const worker = new Worker<TaskJobData>(
   taskQueueName,
@@ -61,10 +113,15 @@ const worker = new Worker<TaskJobData>(
         ? await browserResultFor(job.data.taskId)
         : task.planning_metadata.workflow === 'campaign_send'
           ? await campaignSendResultFor(task.planning_metadata)
+          : task.planning_metadata.workflow === 'lead_campaign'
+            ? await leadCampaignResultFor(task)
           : task.planning_metadata.workflow === 'content'
               ? await contentStepResultFor(task)
           : foundationResultFor(job.data, task.owner_agent, task.planning_metadata);
       await repos.completeTask(taskId, result);
+      await paperclipBridge.syncTaskResult(task, 'done', result).catch((error) => {
+        logger.warn({ taskId, error: error instanceof Error ? error.message : String(error) }, 'Paperclip completion callback failed');
+      });
       await repos.audit({
         actorType: 'system',
         action: 'worker_task_completed',
@@ -78,6 +135,9 @@ const worker = new Worker<TaskJobData>(
       return { ok: true, taskId, status: 'done' };
     } catch (error) {
       await repos.updateTaskStatus(taskId, 'failed', 'Worker failed while processing task');
+      await paperclipBridge.syncTaskResult(task, 'failed', error instanceof Error ? error.message : 'unknown error').catch((callbackError) => {
+        logger.warn({ taskId, error: callbackError instanceof Error ? callbackError.message : String(callbackError) }, 'Paperclip failure callback failed');
+      });
       await notifyTaskLifecycle(taskId, [
         `执行失败：${task.title}`,
         error instanceof Error ? error.message : 'unknown error'
@@ -96,16 +156,21 @@ const worker = new Worker<TaskJobData>(
     }
   },
   {
-    connection: parseRedisConnection(config.redis.url)
+    connection: parseRedisConnection(config.redis.url),
+    // Lead campaigns run for several minutes; keep the job lock alive.
+    lockDuration: 10 * 60 * 1000,
+    stalledInterval: 60 * 1000
   }
 );
 
 worker.on('ready', () => {
   logger.info({ env: config.app.env }, 'Tele-OPC OS worker ready');
+  startAutomaticLedgerSync();
 });
 
 worker.on('completed', (job, result) => {
   logger.info({ jobId: job.id, result }, 'worker job completed');
+  void runAutomaticLedgerSync('task_completed');
 });
 
 worker.on('failed', (job, error) => {
@@ -114,6 +179,7 @@ worker.on('failed', (job, error) => {
 
 async function shutdown() {
   logger.info('Tele-OPC OS worker shutting down');
+  if (ledgerSyncTimer) clearInterval(ledgerSyncTimer);
   await worker.close();
   await pool.end();
 }
@@ -131,6 +197,141 @@ process.on('SIGTERM', () => {
     process.exitCode = 1;
   });
 });
+
+async function leadCampaignResultFor(task: TaskRecord) {
+  const metadata = task.planning_metadata as Record<string, unknown>;
+  const offer = typeof metadata.offer === 'string' ? metadata.offer : task.description ?? task.title;
+  const icp = typeof metadata.icp === 'string' ? metadata.icp : offer;
+  const region = typeof metadata.region === 'string' ? metadata.region : '';
+  const target = Number(metadata.target) > 0 ? Math.min(200, Number(metadata.target)) : 20;
+
+  let lastNotifiedPhase = '';
+  const campaign = await runLeadCampaign({
+    config,
+    offer,
+    icp,
+    region,
+    target,
+    voiceBlock: await personaVoiceBlock(),
+    onProgress: async (progress) => {
+      if (progress.phase === lastNotifiedPhase) return;
+      lastNotifiedPhase = progress.phase;
+      await repos.updateTaskStatus(task.id, 'running', progress.message).catch(() => undefined);
+      await notifyTaskLifecycle(task.id, [`[${progress.found}/${progress.target}] ${progress.message}`]).catch(() => undefined);
+    }
+  });
+
+  if (!campaign.leads.length) {
+    return [
+      `客户挖掘没有产出结果。`,
+      `检索式：${campaign.queries.join(' / ') || '无'}`,
+      `读取来源：${campaign.sourcesRead}`,
+      '公开搜索这次没命中，可以把目标客户描述写得更具体后重试。'
+    ].join('\n');
+  }
+
+  const created: string[] = [];
+  const failed: string[] = [];
+  for (const lead of campaign.leads) {
+    try {
+      const result = await repos.createCrmLead({
+        name: lead.name?.trim() || `${lead.organizationName} 负责人`,
+        organizationName: lead.organizationName,
+        interest: lead.businessLine || offer,
+        note: [
+          lead.note,
+          lead.buyingSignal ? `信号：${lead.buyingSignal}` : '',
+          lead.scoreReason ? `评分依据（${lead.score}）：${lead.scoreReason}` : '',
+          lead.outreach ? `触达话术：${lead.outreach}` : '',
+          lead.sourceUrl ? `来源：${lead.sourceUrl}` : ''
+        ].filter(Boolean).join('\n') || offer
+      });
+      created.push(result.contact.id);
+    } catch (error) {
+      failed.push(`${lead.organizationName}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const artifact = await repos.createArtifact({
+    taskId: task.id,
+    type: 'lead_campaign_report',
+    title: `客户挖掘报告：${offer.slice(0, 40)}`,
+    uri: `tele-opc://artifacts/lead_campaign/${task.id}`,
+    content: renderCampaignReport(campaign.leads, offer, campaign.icpSummary),
+    metadata: {
+      source: 'lead_campaign',
+      offer,
+      icp,
+      region,
+      target,
+      queries: campaign.queries,
+      sourcesRead: campaign.sourcesRead,
+      leadCount: campaign.leads.length,
+      createdContactIds: created
+    }
+  });
+
+  const hot = campaign.leads.filter((lead) => Number(lead.score ?? 0) >= 70).length;
+  return [
+    `客户挖掘完成：${campaign.leads.length} 家（目标 ${target} 家）`,
+    `高匹配（70分以上）：${hot} 家`,
+    `读取公开来源：${campaign.sourcesRead} 个 / 检索式 ${campaign.queries.length} 条`,
+    `已写入 CRM：${created.length} 条${failed.length ? `，失败 ${failed.length} 条` : ''}`,
+    `报告：${artifact.id}`,
+    '',
+    '匹配度最高的几家：',
+    ...campaign.leads.slice(0, 5).map((lead, index) =>
+      `${index + 1}. ${lead.organizationName}（${lead.score}）${lead.approach ? ` — ${lead.approach}` : ''}`
+    ),
+    '',
+    '每家的触达话术已写进 CRM 备注，到 CRM 页面可以直接用。'
+  ].join('\n');
+}
+
+function renderCampaignReport(leads: CampaignLead[], offer: string, icpSummary: string) {
+  return [
+    `# 客户挖掘报告`,
+    '',
+    `**在卖什么**：${offer}`,
+    icpSummary ? `**客户画像**：${icpSummary}` : '',
+    `**产出**：${leads.length} 家`,
+    '',
+    ...leads.flatMap((lead, index) => [
+      `## ${index + 1}. ${lead.organizationName}　${lead.score} 分`,
+      lead.businessLine ? `- 业务：${lead.businessLine}` : '',
+      lead.region ? `- 地区：${lead.region}` : '',
+      lead.buyingSignal ? `- 信号：${lead.buyingSignal}` : '',
+      lead.scoreReason ? `- 评分依据：${lead.scoreReason}` : '',
+      lead.approach ? `- 切入点：${lead.approach}` : '',
+      lead.outreach ? `- 触达话术：${lead.outreach}` : '',
+      lead.sourceUrl ? `- 来源：${lead.sourceUrl}` : '',
+      ''
+    ])
+  ].filter((line) => line !== undefined).join('\n');
+}
+
+async function personaVoiceBlock() {
+  const profile = await repos.getASelfProfile().catch(() => null);
+  if (!profile) return '（人格未蒸馏，用克制专业、不过度承诺的语气）';
+  const toList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+  return [
+    `你在替 ${profile.display_name} 输出内容，必须像本人写的。`,
+    `沟通风格：${JSON.stringify(profile.communication_style ?? {})}`,
+    `绝不做：${toList(profile.boundaries).join(' | ') || '未设定'}`,
+    `价值排序：${toList(profile.values_order).join(' | ') || '未设定'}`
+  ].join('\n');
+}
 
 function foundationResultFor(data: TaskJobData, ownerAgent: string, metadata: Record<string, unknown>) {
   const agent = getAgentDefinition(ownerAgent);

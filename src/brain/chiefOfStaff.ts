@@ -10,6 +10,8 @@ import { isMailDashboardRequest, parseEmailRecordInstruction } from '../email/em
 import { isFinanceDashboardRequest, parseFinanceInstruction } from '../finance/financeIntake.js';
 import { intakeMessage } from '../intake/intake.js';
 import { buildDraftContext, charLength, type DraftContext } from '../memory/draftContext.js';
+import { buildContextPack, contextPackForAgentRuntime, summarizeContextPackForBriefing } from './contextPack.js';
+import { routeCommand } from './commandRouter.js';
 import { isMemoryType, parseMemoryInstruction, supportedMemoryTypes } from '../memory/memoryIntake.js';
 import { LocalAuditExporter, type AuditExportResult } from '../ops/auditExport.js';
 import { LocalBackupRunner, type BackupResult } from '../ops/backup.js';
@@ -273,6 +275,14 @@ export class ChiefOfStaff {
     }
 
     const structuredPlan = createTaskPlan(intake.normalizedText);
+
+    if (
+      chiefIntent?.targetWorkflow === 'prospecting'
+      && (chiefIntent.route === 'task' || chiefIntent.route === 'domain_record')
+      && !requiresApproval(intake)
+    ) {
+      return this.createLeadCampaignWorkflow(intake.normalizedText, context);
+    }
 
     if (chiefIntent?.route === 'content' && !structuredPlan && !requiresApproval(intake)) {
       return this.createContentWorkflow(intake.normalizedText, context);
@@ -1466,7 +1476,12 @@ export class ChiefOfStaff {
     if (!this.agentRunner) return null;
 
     try {
-      const runtimeState = await this.loadAIAgentRuntimeState(context);
+      const contextPack = await buildContextPack(this.repos, {
+        requestId: `ctx_${taskId ?? context.originMessageId}`,
+        querySummary: text,
+        chatId: context.chatId
+      });
+      const runtimeState = contextPackForAgentRuntime(contextPack);
       const result = await this.agentRunner.run({
         agentId,
         systemPrompt: systemPromptForAgent(agentId),
@@ -1478,7 +1493,8 @@ export class ChiefOfStaff {
           chatId: context.chatId,
           originMessageId: context.originMessageId,
           ...agentContext,
-          runtimeState
+          contextPack: runtimeState,
+          runtimeState: runtimeState.runtimeState
         },
         tools: buildCoreAgentTools(this.repos, { chatId: context.chatId }),
         metadata: {
@@ -2062,6 +2078,109 @@ export class ChiefOfStaff {
     ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n');
   }
 
+  /**
+   * Turns "去找 100 家 ... 问他们需不需要 X" into a real background campaign that
+   * searches the open web, scores companies and writes them into CRM.
+   */
+  private async createLeadCampaignWorkflow(text: string, context: BrainContext) {
+    const brief = await this.extractCampaignBrief(text, context);
+    const task = await this.createV3WorkflowTask({
+      workflow: 'lead_campaign',
+      title: `客户挖掘：${brief.offer.slice(0, 40)}（${brief.target} 家）`,
+      description: text,
+      ownerAgent: 'prospecting',
+      riskLevel: 'medium',
+      context,
+      metadata: {
+        offer: brief.offer,
+        icp: brief.icp,
+        region: brief.region,
+        target: brief.target,
+        originalText: text
+      },
+      steps: []
+    });
+
+    const enqueueResult = await this.enqueueTask(task.id, { taskId: task.id, source: 'intake' });
+
+    await this.repos.audit({
+      actorType: 'user',
+      actorId: context.userId,
+      action: 'lead_campaign_started',
+      entityType: 'task',
+      entityId: task.id,
+      metadata: { ...brief, queued: enqueueResult.queued, sourceMessageId: context.originMessageId }
+    });
+
+    return [
+      `已开始挖客户：${task.id}`,
+      `在卖什么：${brief.offer}`,
+      `目标客户：${brief.icp}`,
+      brief.region ? `地区：${brief.region}` : '',
+      `目标数量：${brief.target} 家`,
+      enqueueResult.queued ? '状态：正在后台跑' : '状态：已排期',
+      '',
+      '我会跑多轮公开检索、读取来源正文、抽取公司名、逐条打分，再给每家写一条触达话术，最后全部写进 CRM。',
+      `期间会推进度给你。完成后发送 \`/task ${task.id}\` 看结果，或到 CRM 页面直接用话术。`
+    ].filter(Boolean).join('\n');
+  }
+
+  /** Pulls offer / ICP / region / target count out of one free-form sentence. */
+  private async extractCampaignBrief(text: string, context: BrainContext) {
+    const fallbackTarget = Number(text.match(/(\d{1,3})\s*(?:家|个|条)/)?.[1] ?? 0);
+    const fallback = {
+      offer: text,
+      icp: text,
+      region: '',
+      target: fallbackTarget > 0 ? Math.min(200, fallbackTarget) : 20
+    };
+    if (!this.agentRunner) return fallback;
+
+    try {
+      const result = await this.agentRunner.run({
+        agentId: 'prospecting',
+        systemPrompt: '你是线索挖掘任务解析器。只输出 JSON，不要输出 Markdown。',
+        userText: [
+          '把下面这句话解析成一次客户挖掘任务的参数。',
+          '',
+          `原话：${text}`,
+          '',
+          '字段说明：',
+          '- offer：我要卖给对方的东西/服务，用一句话写清楚',
+          '- icp：应该去找什么样的公司做客户。原话没说清就根据 offer 推断最可能的买家类型，要具体到行业和业务特征',
+          '- region：地区限定，没提就留空字符串',
+          '- target：要找多少家，原话里的数字优先；没写数字就填 20',
+          '',
+          '只输出 JSON：{"offer":"","icp":"","region":"","target":20}'
+        ].join('\n'),
+        context: {
+          telegramUserId: context.telegramUserId,
+          userId: context.userId,
+          chatId: context.chatId,
+          originMessageId: context.originMessageId
+        },
+        tools: [],
+        maxToolRounds: 0,
+        metadata: {
+          source: 'telegram',
+          sourceMessageId: context.originMessageId,
+          workflow: 'lead_campaign_brief'
+        }
+      });
+      const parsed = parseJsonObjectFromText(result.content);
+      if (!parsed) return fallback;
+      const target = Number(parsed.target);
+      return {
+        offer: typeof parsed.offer === 'string' && parsed.offer.trim() ? parsed.offer.trim() : fallback.offer,
+        icp: typeof parsed.icp === 'string' && parsed.icp.trim() ? parsed.icp.trim() : fallback.icp,
+        region: typeof parsed.region === 'string' ? parsed.region.trim() : '',
+        target: Number.isFinite(target) && target > 0 ? Math.min(200, Math.round(target)) : fallback.target
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
   private async createProspectingWorkflow(text: string, context: BrainContext) {
     const draft = buildProspectingDraft(text);
     const task = await this.createV3WorkflowTask({
@@ -2566,7 +2685,8 @@ export class ChiefOfStaff {
       finance,
       calendar,
       mail,
-      browser
+      browser,
+      contextPack
     ] = await Promise.all([
       this.repos.listPendingApprovals(10),
       this.repos.listTasksByStatuses(['planned', 'queued', 'review'], 8),
@@ -2576,13 +2696,24 @@ export class ChiefOfStaff {
       this.repos.getFinanceDashboard(),
       this.repos.getCalendarDashboard(),
       this.repos.getMailDashboard(),
-      this.repos.getBrowserDashboard()
+      this.repos.getBrowserDashboard(),
+      buildContextPack(this.repos, {
+        requestId: `today_${userId}`,
+        querySummary: 'today briefing company operating status'
+      })
     ]);
 
     const lines = [
-      '今日简报 v2：',
+      '今日简报 v3：',
       ''
     ];
+
+    const contextLines = summarizeContextPackForBriefing(contextPack);
+    if (contextLines.length) {
+      lines.push('经营上下文：');
+      lines.push(...contextLines.map((item, index) => `${index + 1}. ${item}`));
+      lines.push('');
+    }
 
     if (approvals.length) {
       lines.push('待审批：');
