@@ -2645,6 +2645,14 @@ class FakeRepos implements ChiefOfStaffRepositories {
     return this.leads.slice(0, limit);
   }
 
+  async searchLeads(_params: { query?: string; limit: number; offset: number }) {
+    return { total: 0, leads: [] as never[] };
+  }
+
+  async getASelfProfile() {
+    return null;
+  }
+
   async listCampaigns(limit = 20) {
     return this.campaigns.slice(0, limit);
   }

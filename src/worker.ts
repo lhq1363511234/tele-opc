@@ -19,6 +19,7 @@ import { buildFeishuMirror } from './appos/feishu/ledger-mirror.js';
 import { LedgerSync } from './appos/feishu/ledger-sync.js';
 import { PaperclipBridge } from './integrations/paperclip/bridge.js';
 import { runLeadCampaign, type CampaignLead } from './prospecting/leadCampaign.js';
+import { runMarketScan, type MarketOpportunity } from './prospecting/marketScan.js';
 
 const config = loadConfig();
 const repos = new Repositories(pool);
@@ -115,6 +116,8 @@ const worker = new Worker<TaskJobData>(
           ? await campaignSendResultFor(task.planning_metadata)
           : task.planning_metadata.workflow === 'lead_campaign'
             ? await leadCampaignResultFor(task)
+          : task.planning_metadata.workflow === 'market_scan'
+            ? await marketScanResultFor(task)
           : task.planning_metadata.workflow === 'content'
               ? await contentStepResultFor(task)
           : await operatingStepResultFor(task, job.data);
@@ -197,6 +200,99 @@ process.on('SIGTERM', () => {
     process.exitCode = 1;
   });
 });
+
+/**
+ * Scans the live market for where money is moving and ranks the fastest paths
+ * to cash. Answers "哪个赛道现在挣钱快", which lead campaigns cannot.
+ */
+async function marketScanResultFor(task: TaskRecord) {
+  const metadata = task.planning_metadata as Record<string, unknown>;
+  const goal = typeof metadata.goal === 'string' ? metadata.goal : task.description ?? task.title;
+  const assets = typeof metadata.assets === 'string' ? metadata.assets : '';
+
+  let lastNotifiedPhase = '';
+  const scan = await runMarketScan({
+    config,
+    goal,
+    assets,
+    voiceBlock: await personaVoiceBlock(),
+    onProgress: async (progress) => {
+      if (progress.phase === lastNotifiedPhase) return;
+      lastNotifiedPhase = progress.phase;
+      await repos.updateTaskStatus(task.id, 'running', progress.message).catch(() => undefined);
+      await notifyTaskLifecycle(task.id, [progress.message]).catch(() => undefined);
+    }
+  });
+
+  if (!scan.opportunities.length) {
+    return [
+      '市场扫描没有产出可信结论。',
+      `检索式：${scan.queries.join(' / ') || '无'}`,
+      `读取来源：${scan.sourcesRead}`,
+      scan.marketRead
+    ].filter(Boolean).join('\n');
+  }
+
+  const artifact = await repos.createArtifact({
+    taskId: task.id,
+    type: 'market_scan_report',
+    title: `市场扫描报告：${goal.slice(0, 40)}`,
+    uri: `tele-opc://artifacts/market_scan/${task.id}`,
+    content: renderMarketScanReport(scan.marketRead, scan.opportunities, goal),
+    metadata: {
+      source: 'market_scan',
+      goal,
+      assets,
+      queries: scan.queries,
+      sourcesRead: scan.sourcesRead,
+      opportunityCount: scan.opportunities.length
+    }
+  });
+
+  const top = scan.opportunities[0];
+  return [
+    `市场扫描完成：读了 ${scan.sourcesRead} 个公开来源 / ${scan.queries.length} 条检索式`,
+    '',
+    scan.marketRead ? `钱现在往哪流：${scan.marketRead}` : '',
+    '',
+    '排出来的方向：',
+    ...scan.opportunities.map((item, index) =>
+      `${index + 1}. ${item.name}（${item.totalScore} 分 · ${item.daysToFirstCash} 天见钱 · ${item.pricePoint}）\n   买家：${item.buyer}`
+    ),
+    '',
+    `我的判断：先打「${top.name}」。`,
+    `理由：${top.demandEvidence}`,
+    `今天就做这一件事：${top.firstMove}`,
+    `风险：${top.risk}`,
+    '',
+    `完整报告：${artifact.id}`
+  ].filter(Boolean).join('\n');
+}
+
+function renderMarketScanReport(marketRead: string, opportunities: MarketOpportunity[], goal: string) {
+  return [
+    '# 市场扫描报告',
+    '',
+    `**目标**：${goal}`,
+    marketRead ? `**钱现在往哪流**：${marketRead}` : '',
+    '',
+    ...opportunities.flatMap((item, index) => [
+      `## ${index + 1}. ${item.name}　${item.totalScore} 分`,
+      `- 赛道：${item.market}`,
+      `- 谁付钱：${item.buyer}`,
+      `- 卖什么：${item.offer}`,
+      `- 价位：${item.pricePoint}`,
+      `- 多久见第一笔钱：${item.daysToFirstCash} 天`,
+      `- 分项：见钱快 ${item.speedScore} / 契合度 ${item.fitScore} / 证据强度 ${item.evidenceScore}`,
+      item.demandEvidence ? `- 需求证据：${item.demandEvidence}` : '',
+      item.competition ? `- 竞争情况：${item.competition}` : '',
+      item.firstMove ? `- **今天的第一步**：${item.firstMove}` : '',
+      item.risk ? `- 风险：${item.risk}` : '',
+      item.sources.length ? `- 来源：${item.sources.join(' / ')}` : '',
+      ''
+    ])
+  ].filter((line) => line !== undefined).join('\n');
+}
 
 async function leadCampaignResultFor(task: TaskRecord) {
   const metadata = task.planning_metadata as Record<string, unknown>;

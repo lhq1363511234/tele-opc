@@ -101,6 +101,7 @@ type ChiefIntentTargetWorkflow =
   | 'review'
   | 'dev'
   | 'ops'
+  | 'market_scan'
   | 'unknown';
 
 interface ChiefIntentDecision {
@@ -169,6 +170,8 @@ export type ChiefOfStaffRepositories = Pick<
   | 'listCampaignEvents'
   | 'listCampaigns'
   | 'listProspectingLeads'
+  | 'searchLeads'
+  | 'getASelfProfile'
   | 'listLeadsForProspectingRun'
   | 'listRecentMessagesForChat'
   | 'listPendingApprovals'
@@ -274,8 +277,20 @@ export class ChiefOfStaff {
       });
     }
 
-    const structuredPlan = (await this.planGoalWithAI(intake.normalizedText, context))
+    // Goal decomposition only applies to genuine new work items. Content and
+    // domain-record routes have their own handlers and must not burn a run here.
+    const structuredPlan = (chiefIntent?.route === 'task'
+      ? await this.planGoalWithAI(intake.normalizedText, context)
+      : null)
       ?? createTaskPlan(intake.normalizedText);
+
+    if (
+      chiefIntent?.targetWorkflow === 'market_scan'
+      && (chiefIntent.route === 'task' || chiefIntent.route === 'domain_record')
+      && !requiresApproval(intake)
+    ) {
+      return this.createMarketScanWorkflow(intake.normalizedText, context);
+    }
 
     if (
       chiefIntent?.targetWorkflow === 'prospecting'
@@ -2077,6 +2092,70 @@ export class ChiefOfStaff {
       '当前阶段只生成内容草稿、标题、脚本和发布计划；公开发布、广告投放或非邮件外部动作需要确认。',
       `发送 \`/task ${task.id}\` 查看内容子任务。`
     ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n');
+  }
+
+  /**
+   * Answers "哪个赛道现在挣钱快" by scanning the live open web for where money is
+   * actually moving, instead of only reasoning over existing CRM leads.
+   */
+  private async createMarketScanWorkflow(text: string, context: BrainContext) {
+    const assets = await this.summarizeOperatingAssets();
+    const task = await this.createV3WorkflowTask({
+      workflow: 'market_scan',
+      title: `市场扫描：${text.slice(0, 40)}`,
+      description: text,
+      ownerAgent: 'prospecting',
+      riskLevel: 'low',
+      context,
+      metadata: {
+        goal: text,
+        assets,
+        originalText: text
+      },
+      steps: []
+    });
+
+    const enqueueResult = await this.enqueueTask(task.id, { taskId: task.id, source: 'intake' });
+
+    await this.repos.audit({
+      actorType: 'user',
+      actorId: context.userId,
+      action: 'market_scan_started',
+      entityType: 'task',
+      entityId: task.id,
+      metadata: { goal: text, queued: enqueueResult.queued, sourceMessageId: context.originMessageId }
+    });
+
+    return [
+      `开始扫市场：${task.id}`,
+      `我手上的牌：${assets}`,
+      enqueueResult.queued ? '状态：正在后台跑' : '状态：已排期',
+      '',
+      '我会跑多轮公开检索，专门找"现在有人正在花钱买什么"的真实证据——需求方在喊的、供给方在报价的、平台上真实成交的，',
+      '然后按「多快能收到钱 × 是否用得上我现有的牌 × 证据够不够硬」排出 5 个方向，每个都给到今天就能做完的第一步。',
+      `完成后发送 \`/task ${task.id}\` 看结果。`
+    ].filter(Boolean).join('\n');
+  }
+
+  /** One-line inventory of what the operator can actually deploy today. */
+  private async summarizeOperatingAssets(): Promise<string> {
+    const parts: string[] = [];
+    try {
+      const { total } = await this.repos.searchLeads({ limit: 1, offset: 0 });
+      if (total > 0) parts.push(`CRM 里 ${total} 条已挖到的企业线索`);
+    } catch {
+      // asset summary is best-effort
+    }
+    try {
+      const profile = await this.repos.getASelfProfile();
+      if (profile?.mission) parts.push(`数字自我人格已蒸馏（${profile.display_name}）`);
+    } catch {
+      // ignore
+    }
+    parts.push('一套能自动跑公开检索、读正文、抽取信息、批量写话术的 Agent 系统');
+    parts.push('会写代码、能快速搭网站和自动化流程');
+    parts.push('几乎没有启动资金，没有团队，不能囤货');
+    return parts.join('；');
   }
 
   /**
@@ -4227,7 +4306,8 @@ function buildChiefIntentPrompt(intake: ReturnType<typeof intakeMessage>) {
     '- task：用户明确要创建、执行、排查、开发、研究、挖掘、规划一个新工作项',
     '- unknown：信息不足，无法判断',
     '',
-    'domain_record 时可选 targetWorkflow：memory、crm、email、mail_dashboard、finance、finance_dashboard、calendar、calendar_dashboard、browser、browser_dashboard、solution、prospecting、quote、review、dev、ops、unknown。',
+    'domain_record 时可选 targetWorkflow：memory、crm、email、mail_dashboard、finance、finance_dashboard、calendar、calendar_dashboard、browser、browser_dashboard、solution、prospecting、quote、review、dev、ops、market_scan、unknown。',
+    'targetWorkflow 用 market_scan 的判断标准：用户在问"哪个方向/赛道/市场现在能挣钱""该做什么生意""怎么最快挣到钱""有什么机会"，也就是还没确定卖什么、需要先侦察市场。注意与 prospecting 区分：prospecting 是已经知道卖什么、要去找买家名单；market_scan 是还不知道该卖什么。',
     'task 或 content 如有明显业务方向，也可以填写 targetWorkflow，例如 prospecting、solution、dev、quote、content 不在 targetWorkflow 可填 unknown。',
     '',
     '重要规则：',
@@ -4287,6 +4367,7 @@ function parseChiefIntentTargetWorkflow(value: unknown): ChiefIntentTargetWorkfl
       'review',
       'dev',
       'ops',
+      'market_scan',
       'unknown'
     ].includes(normalized)
   ) {
