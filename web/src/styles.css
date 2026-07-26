@@ -5085,9 +5085,206 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   margin-right: 7px;
 }
 
+
+/* Studio 模式切换 */
+.studio-tabs { margin: 4px 0 16px; }
+.studio-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+}
+.studio-tabs button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+/* Deck 主题选择器 */
+.theme-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fbfcf8;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.theme-chip i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.theme-chip em {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-left: -3px;
+}
+
+.theme-chip:hover { border-color: var(--ink); }
+.theme-chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.theme-chip.active small { color: rgba(255,255,255,0.72); }
+.theme-chip small { color: var(--muted); font-size: 11px; }
+
+/* Deck 卡片增强 */
+.deck-result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.layout-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef2ee;
+  color: var(--muted);
+}
+
+.deck-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.deck-metrics > div {
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.deck-metrics > div strong { display: block; font-size: 16px; line-height: 1.25; }
+.deck-metrics > div span { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.deck-metrics > div em {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-style: normal;
+  color: #1f7a55;
+}
+
+.deck-asset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.deck-asset svg { flex-shrink: 0; }
+
+/* 线索挖掘 */
+.discover-meta {
+  margin-top: 18px;
+  padding: 13px 15px;
+  border-radius: 9px;
+  background: #f4f7f3;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.discover-meta p { margin: 0 0 7px; }
+.discover-meta small { color: var(--muted); }
+.discover-queries { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.discover-queries > span { color: var(--muted); }
+
+.discover-queries code {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.lead-signal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #1f7a55;
+}
+
+.lead-signal svg { flex-shrink: 0; }
+.lead-approach { margin: 5px 0 0; font-size: 12px; color: var(--ink); opacity: 0.86; }
+
+.lead-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lead-source:hover { color: var(--ink); text-decoration: underline; }
+
+/* 文件上传区 */
+.file-drop {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 26px 18px;
+  border: 1.5px dashed var(--line);
+  border-radius: 10px;
+  background: #fbfcf8;
+  cursor: pointer;
+  text-align: center;
+}
+
+.file-drop:hover,
+.file-drop.dragging { border-color: var(--ink); background: #f4f7f3; }
+.file-drop svg { color: var(--muted); }
+.file-drop strong { font-size: 14px; }
+.file-drop small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.checkbox-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 9px !important;
+}
+
+.checkbox-row input { width: auto !important; min-height: 0 !important; }
+.checkbox-row span { color: var(--ink) !important; font-size: 13px; }
+
+.sheet-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 16px;
+  padding: 11px 14px;
+  border-radius: 8px;
+  background: #f4f7f3;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sheet-meta strong { color: var(--ink); }
+
 @media (max-width: 640px) {
   .studio-form { grid-template-columns: 1fr; }
   .deck-slide-list { grid-template-columns: 1fr; }
+  .theme-picker { gap: 6px; }
+  .theme-chip { font-size: 12px; padding: 0 10px; }
   .proposal-fields { grid-template-columns: 1fr; }
   .permission-control { min-width: 100%; }
 }

@@ -55,6 +55,31 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+/** Downloads a binary file through the same auth headers as the JSON API. */
+export async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const telegramInitData = getTelegramInitData();
+  const devToken = getWebConsoleDevToken();
+  const response = await fetch(path, {
+    headers: {
+      ...(telegramInitData ? { 'X-Telegram-Init-Data': telegramInitData } : {}),
+      ...(devToken ? { 'X-Tele-OPC-Dev-Token': devToken } : {})
+    }
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new ApiError(errorMessage(payload, response.statusText), response.status, payload);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fallbackName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const telegramInitData = getTelegramInitData();
   const devToken = getWebConsoleDevToken();

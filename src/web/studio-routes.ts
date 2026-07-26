@@ -3,6 +3,16 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories.js';
 import type { AppConfig } from '../config/index.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
+import { discoverLeads } from '../prospecting/leadDiscovery.js';
+import { parseSpreadsheet, tablesToText } from '../finance/statementParser.js';
+import {
+  DECK_THEMES,
+  buildPptxBuffer,
+  renderDeckHtml,
+  resolveTheme,
+  type DeckPlan,
+  type DeckSlide
+} from '../deliverables/pptxBuilder.js';
 
 type PersonaVoice = {
   displayName: string;
@@ -70,74 +80,75 @@ const deckSchema = z.object({
   topic: z.string().trim().min(1).max(300),
   audience: z.string().trim().max(80).default('客户'),
   slideCount: z.coerce.number().int().min(4).max(20).default(10),
-  style: z.string().trim().max(80).default('简洁商务'),
+  style: z.string().trim().max(80).default('minimal'),
   goal: z.string().trim().max(500).optional(),
   material: z.string().trim().max(20000).optional()
 });
 
-type DeckSlide = {
-  title: string;
-  subtitle?: string;
-  bullets: string[];
-  speakerNotes?: string;
-  layout?: 'cover' | 'content' | 'metrics' | 'closing';
-};
+const DECK_LAYOUTS = new Set(['cover', 'agenda', 'content', 'metrics', 'chart', 'table', 'quote', 'closing']);
 
-type DeckPlan = { deckTitle: string; deckSubtitle: string; slides: DeckSlide[] };
+function normalizeSlide(raw: any, index: number, total: number): DeckSlide | null {
+  if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) return null;
+  const layout = DECK_LAYOUTS.has(raw.layout)
+    ? raw.layout
+    : index === 0
+      ? 'cover'
+      : index === total - 1
+        ? 'closing'
+        : 'content';
 
-function renderDeckHtml(plan: DeckPlan, style: string) {
-  const esc = (s: string) =>
-    String(s ?? '').replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)
-    );
+  const bullets = Array.isArray(raw.bullets)
+    ? raw.bullets.filter((b: unknown): b is string => typeof b === 'string' && b.trim().length > 0).slice(0, 6)
+    : [];
 
-  const slides = plan.slides
-    .map((slide, index) => {
-      const layout = slide.layout ?? (index === 0 ? 'cover' : 'content');
-      const bullets = (slide.bullets ?? []).map((b) => `<li>${esc(b)}</li>`).join('');
-      return `
-      <section class="slide slide-${layout}">
-        <div class="slide-index">${index + 1} / ${plan.slides.length}</div>
-        <h2>${esc(slide.title)}</h2>
-        ${slide.subtitle ? `<p class="slide-sub">${esc(slide.subtitle)}</p>` : ''}
-        ${bullets ? `<ul>${bullets}</ul>` : ''}
-        ${slide.speakerNotes ? `<div class="notes"><span>演讲备注</span>${esc(slide.speakerNotes)}</div>` : ''}
-      </section>`;
-    })
-    .join('');
+  const metrics = Array.isArray(raw.metrics)
+    ? raw.metrics
+        .filter((m: any) => m && typeof m.label === 'string' && (typeof m.value === 'string' || typeof m.value === 'number'))
+        .slice(0, 4)
+        .map((m: any) => ({ label: String(m.label), value: String(m.value), delta: m.delta ? String(m.delta) : undefined }))
+    : [];
 
-  return `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(plan.deckTitle)}</title>
-<style>
-:root{--ink:#14231d;--muted:#6b7b73;--line:#dfe6e0;--accent:#1f7a55;--bg:#f4f6f3}
-*{box-sizing:border-box}
-body{margin:0;padding:24px;background:var(--bg);color:var(--ink);
-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;line-height:1.6}
-.deck-head{max-width:900px;margin:0 auto 24px}
-.deck-head h1{margin:0 0 6px;font-size:26px}
-.deck-head p{margin:0;color:var(--muted)}
-.slide{max-width:900px;margin:0 auto 18px;background:#fff;border:1px solid var(--line);
-border-radius:12px;padding:32px 36px;position:relative;box-shadow:0 1px 2px rgba(20,35,29,.04)}
-.slide-index{position:absolute;top:16px;right:20px;font-size:12px;color:var(--muted)}
-.slide h2{margin:0 0 10px;font-size:22px;line-height:1.35}
-.slide-sub{margin:0 0 16px;color:var(--muted);font-size:14px}
-.slide ul{margin:0;padding-left:20px}
-.slide li{margin:9px 0;font-size:15px}
-.slide-cover{background:linear-gradient(135deg,#14231d,#1f7a55);color:#fff;border:0;padding:48px 36px}
-.slide-cover h2{font-size:30px}
-.slide-cover .slide-sub,.slide-cover .slide-index{color:rgba(255,255,255,.75)}
-.slide-closing{border-left:4px solid var(--accent)}
-.slide-metrics li{font-variant-numeric:tabular-nums}
-.notes{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);font-size:13px;color:var(--muted)}
-.notes span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
-.slide-cover .notes{border-color:rgba(255,255,255,.25);color:rgba(255,255,255,.8)}
-@media print{body{background:#fff;padding:0}.slide{page-break-after:always;box-shadow:none;margin:0;border-radius:0;min-height:100vh}}
-</style></head>
-<body>
-<div class="deck-head"><h1>${esc(plan.deckTitle)}</h1><p>${esc(plan.deckSubtitle)} · ${esc(style)}</p></div>
-${slides}
-</body></html>`;
+  let chart: DeckSlide['chart'];
+  if (raw.chart && Array.isArray(raw.chart.categories) && Array.isArray(raw.chart.series)) {
+    const categories = raw.chart.categories.map((c: unknown) => String(c)).slice(0, 8);
+    const series = raw.chart.series
+      .filter((serie: any) => serie && Array.isArray(serie.values))
+      .slice(0, 3)
+      .map((serie: any) => ({
+        name: String(serie.name ?? '数据'),
+        values: serie.values.slice(0, categories.length).map((v: unknown) => Number(v) || 0)
+      }));
+    if (categories.length && series.length) {
+      chart = { type: ['bar', 'line', 'pie'].includes(raw.chart.type) ? raw.chart.type : 'bar', categories, series };
+    }
+  }
+
+  let table: DeckSlide['table'];
+  if (raw.table && Array.isArray(raw.table.headers) && Array.isArray(raw.table.rows)) {
+    const headers = raw.table.headers.map((h: unknown) => String(h)).slice(0, 5);
+    const rows = raw.table.rows
+      .filter((row: unknown) => Array.isArray(row))
+      .slice(0, 8)
+      .map((row: unknown[]) => row.slice(0, headers.length).map((cell) => String(cell ?? '')));
+    if (headers.length && rows.length) table = { headers, rows };
+  }
+
+  const resolvedLayout: DeckSlide['layout'] =
+    layout === 'chart' && !chart ? (metrics.length ? 'metrics' : 'content')
+      : layout === 'table' && !table ? 'content'
+        : layout === 'metrics' && !metrics.length ? 'content'
+          : layout;
+
+  return {
+    title: raw.title.trim(),
+    subtitle: typeof raw.subtitle === 'string' && raw.subtitle.trim() ? raw.subtitle.trim() : undefined,
+    bullets,
+    metrics: metrics.length ? metrics : undefined,
+    chart,
+    table,
+    speakerNotes: typeof raw.speakerNotes === 'string' && raw.speakerNotes.trim() ? raw.speakerNotes.trim() : undefined,
+    layout: resolvedLayout
+  };
 }
 
 /* ------------------------- Mail ------------------------- */
@@ -168,6 +179,13 @@ type ParsedLead = {
   scoreReason?: string;
 };
 
+const crmDiscoverSchema = z.object({
+  icp: z.string().trim().min(2).max(500),
+  region: z.string().trim().max(80).default(''),
+  limit: z.coerce.number().int().min(3).max(12).default(6),
+  deepRead: z.boolean().default(false)
+});
+
 const crmCommitSchema = z.object({
   leads: z.array(z.object({
     name: z.string().trim().min(1).max(120),
@@ -194,6 +212,12 @@ type ParsedTxn = {
   occurredAt?: string;
   confidence?: number;
 };
+
+const financeUploadSchema = z.object({
+  filename: z.string().trim().min(1).max(200),
+  contentBase64: z.string().min(8),
+  currency: z.string().trim().max(8).default('CNY')
+});
 
 const financeCommitSchema = z.object({
   currency: z.string().trim().max(8).default('CNY'),
@@ -299,6 +323,16 @@ export function registerStudioRoutes(
   const opts = { preHandler: allowWebConsoleAccess };
 
   // ---- PPT: generate real deck ----
+  app.get('/api/web/studio/deck/themes', opts, async () => ({
+    ok: true,
+    themes: Object.values(DECK_THEMES).map((theme) => ({
+      id: theme.id,
+      label: theme.label,
+      accent: `#${theme.accent}`,
+      cover: `#${theme.coverBg}`
+    }))
+  }));
+
   app.post<{ Body: unknown }>('/api/web/studio/deck', opts, async (request, reply) => {
     const parsed = deckSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -307,61 +341,110 @@ export function registerStudioRoutes(
     }
     const input = parsed.data;
     const voice = await loadVoice(repos);
+    const theme = resolveTheme(input.style);
 
     const prompt = [
       voiceBlock(voice),
       '',
-      `请为以下主题生成一份 ${input.slideCount} 页的演示文稿内容。`,
+      `请为以下主题设计一份 ${input.slideCount} 页的演示文稿。这份内容会被直接渲染成 PowerPoint，所以版式选择很重要。`,
       `主题：${input.topic}`,
       `受众：${input.audience}`,
-      `风格：${input.style}`,
+      `视觉风格：${theme.label}`,
       input.goal ? `这份 PPT 要达成的目标：${input.goal}` : '',
-      input.material ? `可用素材（必须优先使用其中的真实信息，不要编造数字）：\n${input.material}` : '没有提供素材，请基于主题构建合理框架，不要编造具体数字或客户名。',
+      input.material
+        ? `可用素材（必须优先使用其中的真实信息，不要编造数字）：\n${input.material}`
+        : '没有提供素材。可以给出框架和判断，但不要编造具体百分比、金额、客户名。',
+      '',
+      '可用版式（每页必须选一个最合适的，不要全用 content）：',
+      '- cover：仅第一页，封面',
+      '- agenda：议程/目录',
+      '- content：观点列表，3-5 条 bullets',
+      '- metrics：关键数字卡片，必须给 metrics 数组（2-4 个），每项 {label, value, delta}',
+      '- chart：趋势或对比，必须给 chart {type:bar|line|pie, categories:[], series:[{name, values:[]}]}',
+      '- table：多维度对比，必须给 table {headers:[], rows:[[]]}',
+      '- quote：一句有冲击力的判断，放在 bullets 里，最多 2 条',
+      '- closing：仅最后一页，明确的下一步行动',
       '',
       '要求：',
-      '1. 第一页是封面（layout=cover），最后一页是行动号召（layout=closing）。',
-      '2. 含数据的页面 layout 用 metrics，其余用 content。',
-      '3. 每页 bullets 控制在 3-5 条，每条是完整有信息量的句子，不要写"介绍产品"这种空标题。',
+      '1. 至少用上 3 种不同版式。有可量化信息时优先 metrics 或 chart，不要把数字塞进 bullets。',
+      '2. bullets 每条是完整有信息量的句子，不要写"介绍产品"这种空标题。',
+      '3. chart 的 values 必须是纯数字；素材里没有真实数据时不要用 chart。',
       '4. speakerNotes 写这一页要口头补充什么，一到两句。',
-      '5. 没有真实数据时不要编造百分比和金额。',
+      '5. 只输出 JSON，不要 markdown 代码块。',
       '',
-      '严格输出原始 JSON（不要 markdown 代码块）：',
-      '{"deckTitle":"","deckSubtitle":"","slides":[{"title":"","subtitle":"","bullets":[""],"speakerNotes":"","layout":"cover"}]}'
+      '输出格式：',
+      '{"deckTitle":"","deckSubtitle":"","slides":[{"layout":"cover","title":"","subtitle":"","bullets":[""],"metrics":[{"label":"","value":"","delta":""}],"chart":{"type":"bar","categories":[""],"series":[{"name":"","values":[0]}]},"table":{"headers":[""],"rows":[[""]]},"speakerNotes":""}]}'
     ].filter(Boolean).join('\n');
 
     try {
-      const plan = await askJson<DeckPlan>(
+      const raw = await askJson<any>(
         config,
-        '你是资深商业演示设计师。输出严格的原始 JSON。',
+        '你是资深商业演示设计师，擅长把内容匹配到正确的版式。输出严格的原始 JSON。',
         prompt,
         0.4
       );
-      const slides = Array.isArray(plan.slides) ? plan.slides.slice(0, input.slideCount) : [];
+      const rawSlides: any[] = Array.isArray(raw?.slides) ? raw.slides.slice(0, input.slideCount) : [];
+      const slides = rawSlides
+        .map((slide, index) => normalizeSlide(slide, index, rawSlides.length))
+        .filter((slide): slide is DeckSlide => Boolean(slide));
       if (!slides.length) throw new Error('empty_deck');
-      const finalPlan: DeckPlan = {
-        deckTitle: plan.deckTitle || input.topic,
-        deckSubtitle: plan.deckSubtitle || `面向${input.audience}`,
+
+      const plan: DeckPlan = {
+        deckTitle: String(raw?.deckTitle || input.topic),
+        deckSubtitle: String(raw?.deckSubtitle || `面向${input.audience}`),
         slides
       };
-      const html = renderDeckHtml(finalPlan, input.style);
+
+      const html = renderDeckHtml(plan, theme);
       const artifact = await repos.createArtifact({
         type: 'slide_deck_html',
-        title: finalPlan.deckTitle,
+        title: plan.deckTitle,
         content: html,
         metadata: {
           source: 'studio_deck',
           topic: input.topic,
           audience: input.audience,
-          style: input.style,
+          style: theme.id,
+          styleLabel: theme.label,
           slideCount: slides.length,
-          plan: finalPlan
+          layoutMix: slides.map((slide) => slide.layout),
+          plan
         }
       });
-      return { ok: true, artifact: { id: artifact.id, title: artifact.title }, plan: finalPlan, previewUrl: `/app/deliverables/${artifact.id}` };
+      return {
+        ok: true,
+        artifact: { id: artifact.id, title: artifact.title },
+        plan,
+        theme: { id: theme.id, label: theme.label, accent: `#${theme.accent}` },
+        previewUrl: `/app/deliverables/${artifact.id}`,
+        downloadUrl: `/api/web/studio/deck/${artifact.id}.pptx`
+      };
     } catch (err) {
       reply.code(502);
       return { ok: false, error: 'deck_generation_failed', message: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/web/studio/deck/:id.pptx', opts, async (request, reply) => {
+    const artifactId = request.params.id;
+    const artifact = await repos.getArtifact(artifactId);
+    if (!artifact) {
+      reply.code(404);
+      return { ok: false, error: 'artifact_not_found' };
+    }
+    const metadata = (artifact.metadata ?? {}) as Record<string, any>;
+    const plan = metadata.plan as DeckPlan | undefined;
+    if (!plan || !Array.isArray(plan.slides) || !plan.slides.length) {
+      reply.code(409);
+      return { ok: false, error: 'deck_plan_unavailable' };
+    }
+    const theme = resolveTheme(String(metadata.style ?? 'minimal'));
+    const buffer = await buildPptxBuffer(plan, theme);
+    const filename = encodeURIComponent(`${plan.deckTitle || 'deck'}.pptx`);
+    reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+      .header('content-disposition', `attachment; filename="deck.pptx"; filename*=UTF-8''${filename}`);
+    return reply.send(buffer);
   });
 
   // ---- Mail: draft in owner voice ----
@@ -478,6 +561,42 @@ export function registerStudioRoutes(
     return { ok: true, created: created.length, failed };
   });
 
+  // ---- CRM: discover new leads from the open web ----
+  app.post<{ Body: unknown }>('/api/web/studio/crm-discover', opts, async (request, reply) => {
+    const parsed = crmDiscoverSchema.safeParse(request.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { ok: false, error: 'invalid_discover_request', issues: parsed.error.issues };
+    }
+    const input = parsed.data;
+    const voice = await loadVoice(repos);
+
+    try {
+      const result = await discoverLeads({
+        config,
+        icp: input.icp,
+        region: input.region,
+        limit: input.limit,
+        deepRead: input.deepRead,
+        voiceBlock: voiceBlock(voice)
+      });
+      if (!result.leads.length && !result.searched) {
+        reply.code(502);
+        return { ok: false, error: 'search_unavailable', message: '公开搜索没有返回结果，稍后再试或换一个描述。' };
+      }
+      return {
+        ok: true,
+        icpSummary: result.plan.icpSummary,
+        queries: result.plan.queries,
+        searched: result.searched,
+        leads: result.leads
+      };
+    } catch (err) {
+      reply.code(502);
+      return { ok: false, error: 'lead_discovery_failed', message: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   // ---- Finance: parse statement into categorized entries ----
   app.post<{ Body: unknown }>('/api/web/studio/finance-parse', opts, async (request, reply) => {
     const parsed = financeParseSchema.safeParse(request.body);
@@ -529,6 +648,85 @@ export function registerStudioRoutes(
       return { ok: false, error: 'finance_parse_failed', message: err instanceof Error ? err.message : String(err) };
     }
   });
+
+  // ---- Finance: upload a real spreadsheet ----
+  app.post<{ Body: unknown }>(
+    '/api/web/studio/finance-upload',
+    { preHandler: allowWebConsoleAccess, bodyLimit: 12 * 1024 * 1024 },
+    async (request, reply) => {
+      const parsed = financeUploadSchema.safeParse(request.body);
+      if (!parsed.success) {
+        reply.code(400);
+        return { ok: false, error: 'invalid_finance_upload', issues: parsed.error.issues };
+      }
+      const input = parsed.data;
+
+      let tablesText = '';
+      let sheetInfo: Array<{ sheetName: string; rows: number; headers: string[] }> = [];
+      try {
+        const buffer = Buffer.from(input.contentBase64, 'base64');
+        if (!buffer.length) throw new Error('empty_file');
+        const tables = parseSpreadsheet(buffer, input.filename);
+        if (!tables.length) throw new Error('no_readable_sheet');
+        tablesText = tablesToText(tables);
+        sheetInfo = tables.map((table) => ({
+          sheetName: table.sheetName,
+          rows: table.rows.length,
+          headers: table.headers
+        }));
+      } catch (err) {
+        reply.code(400);
+        return {
+          ok: false,
+          error: 'file_parse_failed',
+          message: err instanceof Error ? err.message : String(err)
+        };
+      }
+
+      const prompt = [
+        `这是从文件「${input.filename}」读出来的表格数据，请解析成结构化记账条目。`,
+        `默认币种：${input.currency}`,
+        '',
+        tablesText,
+        '',
+        '要求：',
+        '1. 先自己判断哪几列是日期、金额、收付方、摘要。表头可能是中文也可能是英文，也可能不规范。',
+        '2. 金额必须来自表格中真实出现的数字，绝对不要估算或编造。带括号或负号的通常是支出。',
+        '3. 如果金额分成「收入」「支出」两列，按哪一列有值来决定 direction。',
+        '4. 跳过小计、合计、期初余额、期末余额这类汇总行。',
+        '5. category 用中文常见科目：服务收入、云服务、订阅软件、差旅、外包、税费、房租、工资等。',
+        '6. confidence 是 0-1；看不清或需要人工确认的给低分并在 description 里说明原因。',
+        '7. occurredAt 用 ISO 日期（YYYY-MM-DD）。',
+        '',
+        '严格输出原始 JSON 数组：',
+        '[{"direction":"expense","amount":128,"counterparty":"","category":"","description":"","occurredAt":"","confidence":0.9}]'
+      ].join('\n');
+
+      try {
+        const entries = await askJson<ParsedTxn[]>(
+          config,
+          '你是财务流水解析引擎，擅长读懂格式不规范的表格。输出严格的原始 JSON 数组。',
+          prompt,
+          0.1
+        );
+        const list = Array.isArray(entries)
+          ? entries.filter((e) => e && Number(e.amount) > 0 && (e.direction === 'income' || e.direction === 'expense'))
+          : [];
+        const income = list.filter((e) => e.direction === 'income').reduce((sum, e) => sum + Number(e.amount), 0);
+        const expense = list.filter((e) => e.direction === 'expense').reduce((sum, e) => sum + Number(e.amount), 0);
+        return {
+          ok: true,
+          currency: input.currency,
+          sheets: sheetInfo,
+          entries: list.slice(0, 300),
+          summary: { count: list.length, income, expense, net: income - expense }
+        };
+      } catch (err) {
+        reply.code(502);
+        return { ok: false, error: 'finance_parse_failed', message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
 
   app.post<{ Body: unknown }>('/api/web/studio/finance-commit', opts, async (request, reply) => {
     const parsed = financeCommitSchema.safeParse(request.body);
