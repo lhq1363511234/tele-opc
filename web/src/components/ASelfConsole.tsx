@@ -30,7 +30,10 @@ export function ASelfConsole() {
     queryFn: () => apiGet<ASelfConsoleResponse>('/api/web/a-self'),
     refetchInterval: 30_000
   });
+
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['a-self-console'] });
+  const morningMutation = useMutation({ mutationFn: () => apiPost('/api/web/a-self/run-morning', {}), onSuccess: refresh });
+  const eveningMutation = useMutation({ mutationFn: () => apiPost('/api/web/a-self/run-evening', {}), onSuccess: refresh });
 
   if (query.isLoading) return <LoadingPanel />;
   if (query.isError) return <ErrorPanel error={query.error} />;
@@ -48,7 +51,8 @@ export function ASelfConsole() {
         <div className="a-self-hero-meta"><span><i /> {data.phase}</span><span>更新 {formatTime(data.generatedAt)}</span><span>相似度置信 {confidencePercent}%</span></div>
       </div>
       <div className="a-self-hero-actions">
-        <button type="button" className="secondary-button" onClick={refresh}><RefreshCw size={16} className={query.isFetching ? 'spin' : ''} /> 刷新</button>
+        <button type="button" className="secondary-button" onClick={() => morningMutation.mutate()} disabled={morningMutation.isPending}><Sunrise size={16} className={morningMutation.isPending ? 'spin' : ''} /> 早间扫描</button>
+        <button type="button" className="secondary-button" onClick={() => eveningMutation.mutate()} disabled={eveningMutation.isPending}><Brain size={16} className={eveningMutation.isPending ? 'spin' : ''} /> 晚间复盘</button>
         <button type="button" className="primary-button" onClick={() => setMemoryOpen(true)}><Plus size={16} /> 新增记忆</button>
         <button type="button" className="secondary-button" onClick={() => setDecisionOpen(true)}><Plus size={16} /> 记录决策</button>
       </div>

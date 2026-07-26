@@ -83,6 +83,14 @@ function stepsFromDelimitedRequest(text: string) {
 function stepsFromDomains(text: string) {
   const steps: PlannedStep[] = [];
 
+
+  if (/数字自我|分身|记忆|决策|OPC运行/i.test(text)) {
+    steps.push({
+      title: '调用 A- 数字自我引擎',
+      description: '读取 A- 的画像、长短期记忆和权限设定，根据决策日志给出当前选择及后续规则建议。',
+      ownerAgent: 'chief_of_staff'
+    });
+  }
   if (/客户|CRM|线索|销售|跟进/i.test(text)) {
     steps.push({
       title: /挖掘|获客|找客户|prospect/i.test(text) ? '定义 ICP 并制定客户挖掘策略' : '整理客户和线索上下文',
