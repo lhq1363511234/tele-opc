@@ -2257,7 +2257,11 @@ export class ChiefOfStaff {
           '- description 写清楚这一步的产出和判断标准',
           '- owner 从这些里选：' + knownAgents.join(' / '),
           '- 最多 6 步，按执行顺序排',
+          '- 一个步骤要能独立产出价值。不要把一个动作拆成操作细节：',
+          '  反例：「打开邮件撰写界面」「填写收件人」「填写主题」「点击发送」——这是一个动作，不是四步',
+          '  正例：「写好邮件正文并发出」是一步',
           '- 如果这段话只是一个单一动作或闲聊，不需要拆解，返回 {"isGoal":false,"steps":[]}',
+          '- 判断标准：如果所有步骤都由同一个 owner 完成、且没有中间产出需要检查，那就不该拆，返回 isGoal:false',
           '',
           '只输出 JSON：{"isGoal":true,"goal":"一句话目标","steps":[{"title":"","description":"","owner":"chief_of_staff"}]}'
         ].join('\n'),

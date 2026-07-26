@@ -83,12 +83,16 @@ export interface AgentRunResult {
 }
 
 export class AgentRunner {
+  /** Approval ids already filed in the current run, keyed by call fingerprint. */
+  private readonly pendingApprovalsByFingerprint = new Map<string, string>();
+
   constructor(
     private readonly provider: ModelProvider,
     private readonly repos: AgentRuntimeRepositories
   ) {}
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
+    this.pendingApprovalsByFingerprint.clear();
     const tools = request.tools ?? [];
     const agentRun = await this.repos.createAgentRun({
       taskId: request.taskId,
@@ -238,11 +242,36 @@ export class AgentRunner {
     }
 
     if (tool.approvalRequired) {
+      // The model retries a blocked call, so without this one email produced
+      // several identical approvals for the owner to wade through.
+      const fingerprint = `${toolCall.name}:${stableStringify(toolCall.arguments)}`;
+      const existing = this.pendingApprovalsByFingerprint.get(fingerprint);
+      if (existing) {
+        const output = {
+          blocked: true,
+          reason: 'approval_already_requested',
+          approvalId: existing
+        };
+        await this.repos.updateToolCall(record.id, {
+          status: 'blocked',
+          output,
+          approvalId: existing
+        });
+        return {
+          id: record.id,
+          name: toolCall.name,
+          input: toolCall.arguments,
+          output,
+          status: 'blocked'
+        };
+      }
+
       const approval = await this.createToolApproval({
         agentRun,
         request,
         toolCall
       });
+      if (approval?.id) this.pendingApprovalsByFingerprint.set(fingerprint, approval.id);
       const output = {
         blocked: true,
         reason: 'approval_required',
@@ -341,6 +370,15 @@ export class AgentRunner {
       }
     });
   }
+}
+
+/** Order-independent serialisation so equivalent calls share a fingerprint. */
+function stableStringify(value: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, value[key]])
+  );
 }
 
 /** Renders the fields an owner needs to judge an external action. */

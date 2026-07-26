@@ -135,8 +135,25 @@ const worker = new Worker<TaskJobData>(
           : task.planning_metadata.workflow === 'content'
               ? await contentStepResultFor(task)
           : await operatingStepResultFor(task, job.data);
-      await repos.completeTask(taskId, result);
-      await paperclipBridge.syncTaskResult(task, 'done', result).catch((error) => {
+
+      // Steps can end up waiting on the owner rather than finished.
+      if (typeof result === 'object' && result !== null && 'status' in result) {
+        await repos.updateTaskStatus(taskId, 'waiting_approval', result.text);
+        await repos.audit({
+          actorType: 'system',
+          action: 'worker_task_waiting_approval',
+          entityType: 'task',
+          entityId: taskId,
+          metadata: { jobId: job.id }
+        });
+        await notifyTaskLifecycle(taskId, [`等待审批：${task.title}`, summarizeResult(result.text)]);
+        await continueParentWorkflow(task);
+        return { ok: true, taskId, status: 'waiting_approval' };
+      }
+
+      const resultText: string = result;
+      await repos.completeTask(taskId, resultText);
+      await paperclipBridge.syncTaskResult(task, 'done', resultText).catch((error) => {
         logger.warn({ taskId, error: error instanceof Error ? error.message : String(error) }, 'Paperclip completion callback failed');
       });
       await repos.audit({
@@ -144,9 +161,9 @@ const worker = new Worker<TaskJobData>(
         action: 'worker_task_completed',
         entityType: 'task',
         entityId: taskId,
-        metadata: { jobId: job.id, result }
+        metadata: { jobId: job.id, result: resultText }
       });
-      await notifyTaskLifecycle(taskId, [`完成步骤：${task.title}`, summarizeResult(result)]);
+      await notifyTaskLifecycle(taskId, [`完成步骤：${task.title}`, summarizeResult(resultText)]);
       await continueParentWorkflow(task);
 
       return { ok: true, taskId, status: 'done' };
@@ -168,6 +185,14 @@ const worker = new Worker<TaskJobData>(
           jobId: job.id,
           error: error instanceof Error ? error.message : 'unknown error'
         }
+      });
+      // Without this the parent workflow stays 'running' forever, because the
+      // only call to continueParentWorkflow was on the success path.
+      await continueParentWorkflow(task).catch((continuationError) => {
+        logger.warn(
+          { taskId, error: continuationError instanceof Error ? continuationError.message : String(continuationError) },
+          'parent workflow continuation after failure failed'
+        );
       });
       throw error;
     }
@@ -571,7 +596,27 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
   const toolTrace = usedTools.length
     ? `\n\n（调用了 ${usedTools.length} 次工具：${[...new Set(usedTools.map((call) => call.name))].join('、')}）`
     : '';
-  return [`${agent.displayName}：`, '', text].join('\n') + toolTrace;
+  const body = [`${agent.displayName}：`, '', text].join('\n') + toolTrace;
+
+  // A step whose external action is still waiting for the owner is not done.
+  // Marking it done let later steps proceed as if the action had happened.
+  const blocked = result.toolCalls.filter((call) => call.status === 'blocked');
+  if (blocked.length) {
+    const approvalIds = blocked
+      .map((call) => (call.output as Record<string, unknown> | undefined)?.approvalId)
+      .filter((id): id is string => typeof id === 'string');
+    return {
+      status: 'waiting_approval' as const,
+      text: [
+        body,
+        '',
+        `等待审批：${blocked.map((call) => call.name).join('、')}`,
+        ...approvalIds.map((id) => `发送 \`/approve ${id}\` 批准，或 \`/reject ${id}\` 拒绝。`)
+      ].join('\n')
+    };
+  }
+
+  return body;
 }
 
 function foundationResultFor(data: TaskJobData, ownerAgent: string, metadata: Record<string, unknown>) {
@@ -1103,7 +1148,20 @@ async function continueParentWorkflow(completedTask: TaskRecord) {
   const hasActiveSubtask = ordered.some((task) => ['queued', 'running'].includes(task.status));
   if (hasActiveSubtask) return;
 
-  const next = ordered.find((task) => task.status === 'planned' || task.status === 'waiting_external' || task.status === 'blocked' || task.status === 'failed');
+  // A step awaiting the owner's decision must halt the workflow. Otherwise the
+  // remaining steps run as if the gated action had already happened, which is
+  // how a "generate payment QR" step could be skipped while later steps assumed
+  // money was already collectable.
+  const blockingApproval = ordered.find((task) => task.status === 'waiting_approval');
+  if (blockingApproval) {
+    await notifyTaskLifecycle(parent.id, [
+      `工作流已暂停，等你审批：${blockingApproval.sequence ?? '?'} ${blockingApproval.title}`,
+      '批准后会自动继续后面的步骤。'
+    ]);
+    return;
+  }
+
+  const next = ordered.find((task) => task.status === 'planned' || task.status === 'waiting_external');
   if (next) {
     const previousIncomplete = ordered
       .filter((task) => (task.sequence ?? 0) < (next.sequence ?? 0))
@@ -1133,6 +1191,28 @@ async function continueParentWorkflow(completedTask: TaskRecord) {
       }
     });
     await notifyTaskLifecycle(parent.id, [`下一步已启动：${next.sequence ?? '?'} ${next.title}`]);
+    return;
+  }
+
+  const stalled = ordered.filter((task) => ['failed', 'blocked'].includes(task.status));
+  if (stalled.length) {
+    await repos.updateTaskStatus(
+      parent.id,
+      'blocked',
+      `Blocked by ${stalled.length} unresolved subtask(s): ${stalled.map((task) => task.id).join(', ')}`
+    );
+    await repos.audit({
+      actorType: 'system',
+      action: 'workflow_parent_blocked',
+      entityType: 'task',
+      entityId: parent.id,
+      metadata: { stalledSubtaskIds: stalled.map((task) => task.id) }
+    });
+    await notifyTaskLifecycle(parent.id, [
+      `工作流卡住了：${stalled.length} 个步骤没走通`,
+      ...stalled.slice(0, 3).map((task) => `- ${task.sequence ?? '?'} ${task.title}（${task.status}）`),
+      `修好后发送 \`/retry ${stalled[0].id}\` 继续。`
+    ]);
     return;
   }
 
