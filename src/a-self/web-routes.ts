@@ -141,6 +141,7 @@ async function buildASelfDashboard(repos: Repositories) {
 }
 import { runASelfMorningScan, runASelfEveningSummary } from './engine.js';
 import { runPersonaDistillation } from './distill.js';
+import { planRelationshipMoves } from './relationship.js';
 
 export function registerASelfActionsRoutes(app: any, config: any, repos: Repositories, allowWebConsoleAccess: any) {
   const routeOptions = { preHandler: allowWebConsoleAccess };
@@ -148,12 +149,51 @@ export function registerASelfActionsRoutes(app: any, config: any, repos: Reposit
     const profile = await runPersonaDistillation(repos, config);
     return { ok: true, profile };
   });
+  app.get('/api/web/a-self/relationships', routeOptions, async (request: any) => {
+    const limit = Math.min(12, Math.max(1, Number(request.query?.limit) || 6));
+    const result = await planRelationshipMoves(repos, config, limit);
+    return { ok: true, ...result };
+  });
+
+  app.post('/api/web/a-self/commit-move', routeOptions, async (request: any, reply: any) => {
+    const body = request.body ?? {};
+    const title = String(body.title ?? '').trim();
+    if (!title) {
+      reply.code(400);
+      return { ok: false, error: 'title_required' };
+    }
+    const description = [
+      body.why ? `为什么：${body.why}` : null,
+      body.suggestedAction ? `怎么做：${body.suggestedAction}` : null,
+      body.personaBasis ? `人格依据：${body.personaBasis}` : null,
+      body.draftMessage ? `\n拟发送内容：\n${body.draftMessage}` : null
+    ].filter(Boolean).join('\n');
+
+    const riskLevel = body.kind === 'revenue' || body.channel ? 'medium' : 'low';
+    const task = await repos.createTask({
+      title,
+      description: description || undefined,
+      ownerAgent: body.kind === 'relationship' || body.channel ? 'crm' : 'chief_of_staff',
+      priority: body.urgency === 'now' ? 'high' : 'normal',
+      riskLevel,
+      status: 'planned',
+      planningMetadata: {
+        source: 'a_self',
+        kind: body.kind ?? 'relationship',
+        urgency: body.urgency ?? null,
+        contactId: body.contactId ?? null,
+        personaBasis: body.personaBasis ?? null
+      }
+    });
+    return { ok: true, task };
+  });
+
   app.post('/api/web/a-self/run-morning', routeOptions, async () => {
-    const run = await runASelfMorningScan(repos);
+    const run = await runASelfMorningScan(repos, config);
     return { ok: true, run };
   });
   app.post('/api/web/a-self/run-evening', routeOptions, async () => {
-    const run = await runASelfEveningSummary(repos);
+    const run = await runASelfEveningSummary(repos, config);
     return { ok: true, run };
   });
 }

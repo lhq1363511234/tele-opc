@@ -322,8 +322,18 @@ export interface ASelfOpcRun extends AnyRecord {
   company_state?: string | null;
   recommendations?: string | null;
   metrics: AnyRecord;
+  metadata?: AnyRecord;
   status: string;
   created_at: string;
+}
+
+export interface ASelfOpcMove {
+  title: string;
+  why: string;
+  kind: 'revenue' | 'relationship' | 'risk' | 'ops';
+  urgency: 'now' | 'today' | 'this_week';
+  suggestedAction: string;
+  personaBasis: string;
 }
 
 export interface ASelfConsoleResponse extends AnyRecord {

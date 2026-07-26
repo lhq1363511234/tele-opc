@@ -3525,6 +3525,67 @@ export class Repositories {
   }
 
 
+  async getRelationshipDossier(contactId: string) {
+    const contactResult = await this.pool.query(
+      `
+      SELECT contacts.*, organizations.name AS organization_name
+      FROM contacts
+      LEFT JOIN organizations ON organizations.id = contacts.organization_id
+      WHERE contacts.id = $1
+      `,
+      [contactId]
+    );
+    const contact = contactResult.rows[0] ?? null;
+    if (!contact) return null;
+
+    const [interactions, followUps, opportunities] = await Promise.all([
+      this.pool.query(
+        `SELECT * FROM interactions WHERE contact_id = $1 ORDER BY occurred_at DESC LIMIT 20`,
+        [contactId]
+      ),
+      this.pool.query(
+        `SELECT * FROM follow_ups WHERE contact_id = $1 ORDER BY due_at ASC NULLS LAST LIMIT 20`,
+        [contactId]
+      ),
+      this.pool.query(
+        `SELECT * FROM opportunities WHERE contact_id = $1 ORDER BY created_at DESC LIMIT 20`,
+        [contactId]
+      )
+    ]);
+
+    return {
+      contact,
+      interactions: interactions.rows,
+      followUps: followUps.rows,
+      opportunities: opportunities.rows
+    };
+  }
+
+  async listRelationshipCandidates(limit = 20) {
+    const result = await this.pool.query(
+      `
+      SELECT
+        contacts.id,
+        contacts.name,
+        contacts.status,
+        contacts.notes,
+        contacts.last_interaction_at,
+        organizations.name AS organization_name,
+        (SELECT count(*) FROM follow_ups f WHERE f.contact_id = contacts.id AND f.status = 'open' AND f.due_at < now()) AS overdue_count,
+        (SELECT count(*) FROM opportunities o WHERE o.contact_id = contacts.id AND o.stage NOT IN ('won','lost')) AS open_opportunities,
+        (SELECT coalesce(sum(o.value_amount), 0) FROM opportunities o WHERE o.contact_id = contacts.id AND o.stage NOT IN ('won','lost')) AS open_amount
+      FROM contacts
+      LEFT JOIN organizations ON organizations.id = contacts.organization_id
+      ORDER BY
+        (SELECT count(*) FROM follow_ups f WHERE f.contact_id = contacts.id AND f.status = 'open' AND f.due_at < now()) DESC,
+        contacts.last_interaction_at ASC NULLS FIRST
+      LIMIT $1
+      `,
+      [Math.min(100, Math.max(1, limit))]
+    );
+    return result.rows;
+  }
+
   async getASelfProfile() {
     const result = await this.pool.query(
       `SELECT * FROM a_self_profiles ORDER BY updated_at DESC LIMIT 1`

@@ -60,6 +60,46 @@ export interface ContextPackRepositories {
     netCashflow?: number;
     currency?: string;
   }>;
+  getASelfProfile?(id?: string): Promise<{
+    id: string;
+    display_name: string;
+    mission: string;
+    profile_markdown: string;
+    values_order: string[];
+    decision_principles: string[];
+    communication_style: Record<string, unknown>;
+    boundaries: string[];
+    confidence: number | string;
+  } | null>;
+  listASelfMemoryItems?(limit?: number): Promise<Array<{
+    id: string;
+    category: string;
+    title: string;
+    content: string;
+    why: string | null;
+  }>>;
+  listASelfDecisionLogs?(limit?: number): Promise<Array<{
+    id: string;
+    question: string;
+    choice: string;
+    why: string;
+    future_rule: string | null;
+    impact: string;
+  }>>;
+}
+
+export interface PersonaContext {
+  available: boolean;
+  displayName: string;
+  mission: string;
+  confidence: number;
+  valuesOrder: string[];
+  decisionPrinciples: string[];
+  boundaries: string[];
+  communicationStyle: Record<string, unknown>;
+  profileMarkdown: string;
+  memoryHighlights: Array<{ title: string; content: string; why: string | null; category: string }>;
+  decisionRules: Array<{ question: string; choice: string; why: string; rule: string | null }>;
 }
 
 export interface ContextRef {
@@ -73,6 +113,7 @@ export interface ContextRef {
 
 export interface ContextPack {
   requestId: string;
+  persona: PersonaContext;
   querySummary: string;
   relevantMemories: ContextRef[];
   relevantArtifacts: ContextRef[];
@@ -131,7 +172,10 @@ export async function buildContextPack(
     pendingApprovalsResult,
     agentRunsResult,
     crmResult,
-    financeResult
+    financeResult,
+    personaResult,
+    personaMemoryResult,
+    personaDecisionResult
   ] = await Promise.allSettled([
     repos.listMemories({ limit: 20 }),
     repos.listTasks(10),
@@ -140,7 +184,10 @@ export async function buildContextPack(
     repos.listPendingApprovals(10),
     repos.listAgentRuns ? repos.listAgentRuns(8) : Promise.resolve([]),
     repos.getCrmDashboard ? repos.getCrmDashboard() : Promise.resolve({}),
-    repos.getFinanceDashboard ? repos.getFinanceDashboard() : Promise.resolve({})
+    repos.getFinanceDashboard ? repos.getFinanceDashboard() : Promise.resolve({}),
+    repos.getASelfProfile ? repos.getASelfProfile() : Promise.resolve(null),
+    repos.listASelfMemoryItems ? repos.listASelfMemoryItems(12) : Promise.resolve([]),
+    repos.listASelfDecisionLogs ? repos.listASelfDecisionLogs(10) : Promise.resolve([])
   ]);
 
   const memories = settled(memoriesResult, 'memories', errors, []);
@@ -161,6 +208,47 @@ export async function buildContextPack(
   };
   const crm = settled(crmResult, 'crm', errors, {} as CrmContext) as CrmContext;
   const finance = settled(financeResult, 'finance', errors, {} as FinanceContext) as FinanceContext;
+
+  const personaProfile = settled(personaResult, 'persona', errors, null);
+  const personaMemories = settled(personaMemoryResult, 'personaMemories', errors, []);
+  const personaDecisions = settled(personaDecisionResult, 'personaDecisions', errors, []);
+  const persona: PersonaContext = personaProfile
+    ? {
+        available: true,
+        displayName: personaProfile.display_name,
+        mission: personaProfile.mission,
+        confidence: Number(personaProfile.confidence) || 0,
+        valuesOrder: asStringArray(personaProfile.values_order),
+        decisionPrinciples: asStringArray(personaProfile.decision_principles),
+        boundaries: asStringArray(personaProfile.boundaries),
+        communicationStyle: (personaProfile.communication_style ?? {}) as Record<string, unknown>,
+        profileMarkdown: personaProfile.profile_markdown ?? '',
+        memoryHighlights: personaMemories.slice(0, 8).map((item) => ({
+          category: item.category,
+          title: item.title,
+          content: item.content.slice(0, 400),
+          why: item.why
+        })),
+        decisionRules: personaDecisions.slice(0, 8).map((item) => ({
+          question: item.question,
+          choice: item.choice,
+          why: item.why,
+          rule: item.future_rule
+        }))
+      }
+    : {
+        available: false,
+        displayName: 'A-',
+        mission: '',
+        confidence: 0,
+        valuesOrder: [],
+        decisionPrinciples: [],
+        boundaries: [],
+        communicationStyle: {},
+        profileMarkdown: '',
+        memoryHighlights: [],
+        decisionRules: []
+      };
 
   const query = params.querySummary.toLowerCase();
   const relevantMemories = memories
@@ -242,6 +330,7 @@ export async function buildContextPack(
 
   return {
     requestId: params.requestId ?? `ctx_${Date.now()}`,
+    persona,
     querySummary: params.querySummary,
     relevantMemories,
     relevantArtifacts: [],
@@ -287,6 +376,10 @@ export function contextPackForAgentRuntime(pack: ContextPack) {
   return {
     notice:
       'Context Pack is retrieved company intelligence. Prefer these memories, customers, finance risks, and active tasks over guessing.',
+    personaNotice: pack.persona.available
+      ? 'persona 是老板的数字人格基因（A_profile）。你必须按 valuesOrder 排序权衡、按 decisionPrinciples 做判断、遵守 boundaries、用 communicationStyle 说话。decisionRules 是老板过去真实决策沉淀的规则，遇到相似情况优先套用。'
+      : 'persona 尚未蒸馏，按通用一人公司经营常识行事，并提示老板补充人格资料。',
+    persona: pack.persona,
     requestId: pack.requestId,
     querySummary: pack.querySummary,
     relevantMemories: pack.relevantMemories,
@@ -420,4 +513,19 @@ function inferRecommendedSkills(query: string) {
   if (/获客|线索|销售/i.test(text)) skills.push('prospecting');
   if (/复盘|周报|经营/i.test(text)) skills.push('ops_review');
   return skills.slice(0, 6);
+}
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }

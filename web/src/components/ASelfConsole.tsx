@@ -3,7 +3,8 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '../api';
 import { formatTime } from '../format';
-import type { ASelfConsoleResponse } from '../types';
+import type { ASelfConsoleResponse, ASelfOpcMove, ASelfOpcRun } from '../types';
+import { RelationshipDesk } from './RelationshipDesk';
 import { EmptyState, ErrorPanel, LoadingPanel, PanelHeader, StatusPill, truncateText } from './ui';
 
 function useModalGuard(onClose: () => void) {
@@ -34,6 +35,7 @@ export function ASelfConsole() {
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['a-self-console'] });
   const morningMutation = useMutation({ mutationFn: () => apiPost('/api/web/a-self/run-morning', {}), onSuccess: refresh });
   const eveningMutation = useMutation({ mutationFn: () => apiPost('/api/web/a-self/run-evening', {}), onSuccess: refresh });
+  const distillMutation = useMutation({ mutationFn: () => apiPost('/api/web/a-self/distill', {}), onSuccess: refresh });
 
   if (query.isLoading) return <LoadingPanel />;
   if (query.isError) return <ErrorPanel error={query.error} />;
@@ -53,6 +55,7 @@ export function ASelfConsole() {
       <div className="a-self-hero-actions">
         <button type="button" className="secondary-button" onClick={() => morningMutation.mutate()} disabled={morningMutation.isPending}><Sunrise size={16} className={morningMutation.isPending ? 'spin' : ''} /> 早间扫描</button>
         <button type="button" className="secondary-button" onClick={() => eveningMutation.mutate()} disabled={eveningMutation.isPending}><Brain size={16} className={eveningMutation.isPending ? 'spin' : ''} /> 晚间复盘</button>
+        <button type="button" className="secondary-button" onClick={() => distillMutation.mutate()} disabled={distillMutation.isPending}><Sparkles size={16} className={distillMutation.isPending ? 'spin' : ''} /> 蒸馏人格</button>
         <button type="button" className="primary-button" onClick={() => setMemoryOpen(true)}><Plus size={16} /> 新增记忆</button>
         <button type="button" className="secondary-button" onClick={() => setDecisionOpen(true)}><Plus size={16} /> 记录决策</button>
       </div>
@@ -67,7 +70,7 @@ export function ASelfConsole() {
 
     <div className="a-self-grid">
       <section className="panel a-self-profile-card">
-        <PanelHeader title="人格基因 A_profile" hint="价值排序、决策原则、沟通风格、禁区" />
+        <PanelHeader title="动态人格基因 A_profile" hint="由大模型从 Decision Log 与 Memory 中自动蒸馏提取" />
         <p>{data.profile?.profile_markdown}</p>
         <div className="a-self-profile-columns">
           <GeneList title="价值排序" items={data.profile?.values_order ?? []} />
@@ -128,16 +131,13 @@ export function ASelfConsole() {
       </section>
     </div>
 
+    <RelationshipDesk />
+
     <section className="panel">
-      <PanelHeader title="OPC 公司环境" hint="早晨市场扫描，晚上经营总结" />
-      <div className="a-self-opc-runs">
-        {data.opcRuns.map((run) => <article key={run.id}>
-          <Sparkles size={16} />
-          <div><strong>{run.title}</strong><span>{run.run_type} · {formatTime(run.created_at)}</span><p>{truncateText(run.recommendations || run.market_scan || run.company_state || '暂无内容', 220)}</p></div>
-          <StatusPill status={run.status} />
-        </article>)}
-        {!data.opcRuns.length ? <EmptyState text="还没有 OPC 运行记录。下一步可以创建早晨市场扫描和晚上经营总结自动任务。" /> : null}
-      </div>
+      <PanelHeader title="经营行动台" hint="A- 按你的人格读真实经营数据后给出的可执行动作" />
+      {data.opcRuns.length ? <OpcRunBoard runs={data.opcRuns} /> : (
+        <EmptyState text="还没有经营循环记录。点上面的「早间扫描」或「晚间复盘」，A- 会读取 CRM、财务、任务和日程，按你的人格给出今天该做什么。" />
+      )}
     </section>
 
     {memoryOpen ? <MemoryDialog onClose={() => setMemoryOpen(false)} onCreated={() => { setMemoryOpen(false); refresh(); }} /> : null}
@@ -198,4 +198,107 @@ function DecisionDialog({ onClose, onCreated }: { onClose: () => void; onCreated
       </form>
     </section>
   </div>;
+}
+
+function OpcRunBoard({ runs }: { runs: ASelfOpcRun[] }) {
+  const queryClient = useQueryClient();
+  const [committed, setCommitted] = useState<Record<string, string>>({});
+
+  const commit = useMutation({
+    mutationFn: (payload: ASelfOpcMove & { key: string }) =>
+      apiPost<{ ok: boolean; task: { id: string } }>('/api/web/a-self/commit-move', {
+        title: payload.title,
+        why: payload.why,
+        suggestedAction: payload.suggestedAction,
+        personaBasis: payload.personaBasis,
+        kind: payload.kind,
+        urgency: payload.urgency
+      }),
+    onSuccess: (result, payload) => {
+      setCommitted((c) => ({ ...c, [payload.key]: result.task.id }));
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+    }
+  });
+
+  const latest = runs[0];
+  const moves = extractMoves(latest);
+
+  return (
+    <div className="opc-board">
+      <div className="opc-board-head">
+        <div>
+          <strong>{latest.title}</strong>
+          <span>{latest.run_type === 'morning' ? '早间扫描' : latest.run_type === 'evening' ? '晚间复盘' : latest.run_type} · {formatTime(latest.created_at)}</span>
+        </div>
+        <StatusPill status={latest.status} />
+      </div>
+      {latest.company_state ? <p className="opc-board-state">{latest.company_state}</p> : null}
+
+      {moves.length ? (
+        <div className="opc-move-list">
+          {moves.map((move, index) => {
+            const key = `${latest.id}_${index}`;
+            return (
+              <article key={key} className={`opc-move opc-kind-${move.kind}`}>
+                <header>
+                  <strong>{move.title}</strong>
+                  <div>
+                    <span className={`opc-kind opc-kind-tag-${move.kind}`}>{kindLabel(move.kind)}</span>
+                    <span className={`opc-urgency opc-urgency-${move.urgency}`}>{urgencyLabel(move.urgency)}</span>
+                  </div>
+                </header>
+                <p className="opc-why">{move.why}</p>
+                <p className="opc-action">{move.suggestedAction}</p>
+                <p className="opc-basis"><Target size={13} /> {move.personaBasis}</p>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => commit.mutate({ ...move, key })}
+                  disabled={commit.isPending || Boolean(committed[key])}
+                >
+                  {committed[key] ? '已建任务' : '转成任务'}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <pre className="opc-raw">{truncateText(latest.recommendations || latest.market_scan || '暂无内容', 900)}</pre>
+      )}
+
+      {runs.length > 1 ? (
+        <div className="opc-history">
+          <span>历史循环</span>
+          {runs.slice(1, 6).map((run) => (
+            <article key={run.id}>
+              <strong>{truncateText(run.title, 60)}</strong>
+              <small>{run.run_type} · {formatTime(run.created_at)}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function extractMoves(run: ASelfOpcRun): ASelfOpcMove[] {
+  const raw = (run.metadata as { moves?: unknown } | undefined)?.moves;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((m): m is ASelfOpcMove =>
+    Boolean(m) && typeof m === 'object' && typeof (m as ASelfOpcMove).title === 'string'
+  );
+}
+
+function kindLabel(kind: string) {
+  if (kind === 'revenue') return '挣钱';
+  if (kind === 'relationship') return '关系';
+  if (kind === 'risk') return '风险';
+  return '效率';
+}
+
+function urgencyLabel(urgency: string) {
+  if (urgency === 'now') return '立刻';
+  if (urgency === 'today') return '今天';
+  return '本周';
 }
