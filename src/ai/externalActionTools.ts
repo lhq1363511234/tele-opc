@@ -11,6 +11,9 @@ export interface ExternalActionRepositories {
 
 export interface ExternalActionOptions {
   taskId?: string;
+  wechat?: {
+    sendText(input: { accountId: string; peerId: string; text: string; sourceMessageId?: string }): Promise<Record<string, unknown>>;
+  };
   feishu?: {
     appId: string;
     appSecret: string;
@@ -147,6 +150,17 @@ export async function runApprovedAction(
   switch (actionType) {
     case 'send_email':
       return await sendEmailAction(input);
+    case 'wechat_send_message': {
+      if (!options.wechat) return { ok: false, error: 'wechat_ilink_not_configured' };
+      const accountId = String(input.accountId ?? '').trim();
+      const peerId = String(input.peerId ?? '').trim();
+      const text = String(input.text ?? '').trim();
+      if (!accountId || !peerId || !text) return { ok: false, error: 'wechat_account_peer_text_required' };
+      return await options.wechat.sendText({
+        accountId, peerId, text,
+        sourceMessageId: typeof input.sourceMessageId === 'string' ? input.sourceMessageId : undefined
+      });
+    }
     case 'write_feishu_table':
       if (!options.feishu?.appId || !options.feishu.appSecret || !options.feishu.appToken) {
         return { ok: false, error: 'feishu_not_configured' };

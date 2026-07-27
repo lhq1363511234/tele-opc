@@ -1,0 +1,18 @@
+[Unit]
+Description=Tele-OPC WeChat iLink Channel
+After=network.target tele-opc-api.service tele-opc-worker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/opt/tele-opc
+EnvironmentFile=/root/opt/tele-opc/.env
+ExecStart=/usr/bin/npm run wechat:worker
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=20
+StandardOutput=append:/root/opt/tele-opc/runtime/logs/wechat.dev.log
+StandardError=append:/root/opt/tele-opc/runtime/logs/wechat.dev.log
+
+[Install]
+WantedBy=multi-user.target

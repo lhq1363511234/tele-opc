@@ -34,7 +34,9 @@
     "analytics:sync": "tsx scripts/sync_business_analytics_to_feishu.ts",
     "analytics:seed": "tsx scripts/seed_rich_business_analytics_facts.ts",
     "analytics:seed-sync": "npm run analytics:seed && npm run analytics:sync",
-    "analytics:seed-fast-sync": "tsx scripts/fast_seed_analytics_to_feishu.ts"
+    "analytics:seed-fast-sync": "tsx scripts/fast_seed_analytics_to_feishu.ts",
+    "wechat:worker": "tsx src/channels/wechat-ilink/worker.ts",
+    "wechat:worker:prod": "node dist/src/channels/wechat-ilink/worker.js"
   },
   "engines": {
     "node": ">=20"

@@ -176,3 +176,21 @@ src/channels/wechat-ilink/
 - **协议验证价值：高**
 - **生产安全性：低**
 - **推荐：重新实现 M21 adapter，复用 Tele-OPC 核心，不部署 Echo Demo**
+
+## M21-P0 当前实现状态（2026-07-27）
+
+已完成并部署：
+
+- `018_wechat_ilink.sql`：账号、扫码会话、同步游标、联系人上下文令牌；
+- `APP_ENCRYPTION_KEY` + AES-256-GCM：`bot_token`、二维码登录凭证、`context_token` 加密落库；
+- QR 登录与二次验证码接口；
+- 独立 `tele-opc-wechat` 长轮询 Worker；
+- `get_updates_buf` 持久化、消息幂等和 `-14` stale session 熔断；
+- 外部微信消息进入现有 `channel_messages`、任务和审计；
+- 现有 A- 人格资料参与回复草稿生成，外部消息按不可信输入隔离；
+- 回复策略支持 `approval` 和 `auto`；当前实例已按所有者要求启用 `auto`，收到可处理的 Bot 私聊后由数字本人直接回复；
+- `approval` 模式下，每条微信外发创建 `wechat_send_message` 高风险审批；
+- 审批通过后由现有 Worker 使用最新加密 `context_token` 真实回复；
+- Web 管理 API：账号状态、发起扫码、轮询扫码状态。
+
+当前真实账号已经完成扫码绑定，服务端同步游标已建立。下一验收点是收到一条真实微信消息、在飞书批准草稿并验证微信实际送达。

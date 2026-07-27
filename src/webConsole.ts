@@ -26,6 +26,7 @@ import { registerPaperclipWebRoutes } from './integrations/paperclip/web-routes.
 import { registerASelfWebRoutes, registerASelfActionsRoutes } from './a-self/web-routes.js';
 import { registerBusinessActionRoutes } from './web/actions-routes.js';
 import { registerStudioRoutes } from './web/studio-routes.js';
+import { registerWechatIlinkWebRoutes } from './channels/wechat-ilink/web-routes.js';
 
 const apiLimitSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30)
@@ -125,6 +126,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   registerASelfActionsRoutes(app, config, repos, allowWebConsoleAccess);
   registerBusinessActionRoutes(app, repos, allowWebConsoleAccess);
   registerStudioRoutes(app, config, repos, allowWebConsoleAccess);
+  registerWechatIlinkWebRoutes(app, config, repos, allowWebConsoleAccess);
 
   app.get('/api/web/session', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,

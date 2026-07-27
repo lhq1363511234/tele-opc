@@ -25,6 +25,8 @@ import { LedgerSync } from './appos/feishu/ledger-sync.js';
 import { PaperclipBridge } from './integrations/paperclip/bridge.js';
 import { runLeadCampaign, type CampaignLead } from './prospecting/leadCampaign.js';
 import { runMarketScan, type MarketOpportunity } from './prospecting/marketScan.js';
+import { WechatIlinkStore } from './channels/wechat-ilink/store.js';
+import { WechatIlinkClient } from './channels/wechat-ilink/api-client.js';
 
 const config = loadConfig();
 const repos = new Repositories(pool);
@@ -44,6 +46,8 @@ const feishuMirror = buildFeishuMirror({
   baseUrl: config.feishu.openBaseUrl
 });
 const ledgerSync = new LedgerSync(repos, feishuMirror);
+const wechatIlinkStore = config.wechatIlink.enabled ? new WechatIlinkStore(pool, config.app.encryptionKey) : null;
+const wechatIlinkClient = new WechatIlinkClient(config.wechatIlink.baseUrl);
 const externalActionOptions = config.feishu.appId && config.feishu.appSecret && config.feishu.baseAppToken
   ? {
       feishu: {
@@ -54,6 +58,34 @@ const externalActionOptions = config.feishu.appId && config.feishu.appSecret && 
       }
     }
   : {};
+if (wechatIlinkStore) {
+  Object.assign(externalActionOptions, {
+    wechat: {
+      async sendText(input: { accountId: string; peerId: string; text: string; sourceMessageId?: string }) {
+        const account = await wechatIlinkStore.getAccount(input.accountId);
+        if (!account || account.status !== 'connected') return { ok: false, error: 'wechat_account_not_connected' };
+        const contextToken = await wechatIlinkStore.getContextToken(input.accountId, input.peerId);
+        if (!contextToken) return { ok: false, error: 'wechat_context_token_missing' };
+        const sent = await wechatIlinkClient.sendText({
+          baseUrl: account.base_url,
+          token: wechatIlinkStore.decryptAccountToken(account),
+          to: input.peerId,
+          contextToken,
+          text: input.text
+        });
+        const owner = await repos.getPrimaryOwnerConversation(config.telegram.ownerIds);
+        if (owner) {
+          await repos.createChannelOutboundMessage({
+            channel: 'wechat', externalMessageId: `${account.id}:${sent.messageId}`,
+            externalChatId: input.peerId, externalUserId: input.peerId, chatId: owner.chatId,
+            text: input.text, raw: { accountId: account.id, sourceMessageId: input.sourceMessageId, approved: true }
+          });
+        }
+        return { ok: true, messageId: sent.messageId, peerId: input.peerId, accountId: account.id };
+      }
+    }
+  });
+}
 let ledgerSyncRunning = false;
 let shuttingDown = false;
 let ledgerSyncTimer: NodeJS.Timeout | null = null;
@@ -309,6 +341,10 @@ async function approvedActionResultFor(task: TaskRecord, data: TaskJobData) {
       `主题：${String(outcome.subject ?? '')}`,
       outcome.messageId ? `Message-ID：${String(outcome.messageId)}` : ''
     ].filter(Boolean).join('\n');
+  }
+
+  if (toolName === 'wechat_send_message') {
+    return ['微信回复已真实发出。', `联系人：${String(outcome.peerId ?? '')}`, `消息 ID：${String(outcome.messageId ?? '')}`].join('\n');
   }
 
   if (toolName === 'write_feishu_table') {

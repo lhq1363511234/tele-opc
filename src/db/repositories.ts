@@ -1366,6 +1366,7 @@ export class Repositories {
         externalUserId: row.external_user_id ?? undefined
       };
     }
+    if (row.origin_channel && row.origin_channel !== 'telegram') return null;
     if (row.telegram_chat_id !== null && row.telegram_chat_id !== undefined) {
       return {
         channel: 'telegram' as const,

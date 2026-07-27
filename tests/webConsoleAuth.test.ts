@@ -43,6 +43,7 @@ function config(partial: Partial<AppConfig['app']> & { authMode?: 'auto' | 'open
       inboxPath: 'runtime/codex-inbox.jsonl',
       maxPromptChars: 1000
     },
+    wechatIlink: { enabled: false, baseUrl: 'https://ilinkai.weixin.qq.com', retryDelayMs: 5000, replyMode: 'approval' },
     paperclip: { enabled: false, apiUrl: 'http://127.0.0.1:3101', apiKey: '', companyId: '', webhookSecret: '', heartbeatWaitMs: 12000 },
     feishu: {
       appId: '',

@@ -57,6 +57,10 @@ const envSchema = z.object({
   FEISHU_MESSAGE_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(300000).default(15000),
   FEISHU_POLL_CHAT_IDS: z.string().default(''),
   FEISHU_ATTACHMENT_MAX_BYTES: z.coerce.number().int().min(1048576).max(536870912).default(52428800),
+  WECHAT_ILINK_ENABLED: envBool(false),
+  WECHAT_ILINK_BASE_URL: z.string().default('https://ilinkai.weixin.qq.com'),
+  WECHAT_ILINK_RETRY_DELAY_MS: z.coerce.number().int().min(1000).max(60000).default(5000),
+  WECHAT_ILINK_REPLY_MODE: z.enum(['approval', 'auto']).default('approval'),
   PAPERCLIP_ENABLED: envBool(false),
   PAPERCLIP_API_URL: z.string().default('http://127.0.0.1:3101'),
   PAPERCLIP_API_KEY: z.string().default(''),
@@ -119,6 +123,12 @@ export function loadConfig() {
       messagePollIntervalMs: env.FEISHU_MESSAGE_POLL_INTERVAL_MS,
       pollChatIds: feishuPollChatIds,
       attachmentMaxBytes: env.FEISHU_ATTACHMENT_MAX_BYTES
+    },
+    wechatIlink: {
+      enabled: env.WECHAT_ILINK_ENABLED,
+      baseUrl: env.WECHAT_ILINK_BASE_URL,
+      retryDelayMs: env.WECHAT_ILINK_RETRY_DELAY_MS,
+      replyMode: env.WECHAT_ILINK_REPLY_MODE
     },
     paperclip: {
       enabled: env.PAPERCLIP_ENABLED,
