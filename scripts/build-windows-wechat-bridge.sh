@@ -26,6 +26,7 @@ import json,sys,urllib.request,pathlib
 out=pathlib.Path(sys.argv[1])
 wanted={
   'click':('8.1.8',lambda n:n.endswith('py3-none-any.whl')),
+  'colorama':('0.4.6',lambda n:n.endswith('py2.py3-none-any.whl')),
   'pycryptodome':('3.23.0',lambda n:'abi3-win_amd64.whl' in n),
   'zstandard':('0.23.0',lambda n:'cp312-cp312-win_amd64.whl' in n),
 }
