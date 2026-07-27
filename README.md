@@ -1128,3 +1128,7 @@ Docker 镜像启动失败：
 ## Paperclip 集成
 
 Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issue 编排，Tele-OPC 负责执行、Telegram、飞书台账和经营数据。详见 [`docs/PAPERCLIP_INTEGRATION.md`](docs/PAPERCLIP_INTEGRATION.md)。
+
+## Architecture and bug routing
+
+Use the [architecture and maintenance index](./docs/architecture/README.zh-CN.md) as the source of truth for phase status, module boundaries, and bug ownership. Bug reports should include a module ID such as `M09 Finance` or `M15 Feishu Channel`.

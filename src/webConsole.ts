@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AgentRunner } from './ai/agentRunner.js';
@@ -414,6 +415,26 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
     ok: true,
     dashboard: await repos.getOpsDashboard()
   }));
+
+  app.get('/api/web/architecture', { preHandler: allowWebConsoleAccess }, async (_request, reply) => {
+    try {
+      const catalogPath = path.resolve(process.cwd(), 'docs', 'architecture', 'module-catalog.yaml');
+      const parsed = YAML.parse(await fs.readFile(catalogPath, 'utf8')) as {
+        version?: number;
+        updated_at?: string;
+        modules?: unknown[];
+      };
+      return {
+        ok: true,
+        version: parsed.version ?? 1,
+        updatedAt: parsed.updated_at ?? '',
+        modules: Array.isArray(parsed.modules) ? parsed.modules : []
+      };
+    } catch (error) {
+      reply.code(500);
+      return { ok: false, error: 'architecture_catalog_unavailable', message: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
   app.get('/api/web/settings', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,

@@ -1,0 +1,380 @@
+version: 1
+updated_at: 2026-07-27
+modules:
+- id: M00
+  name: web-shell
+  label: Web Shell 与导航
+  frontend:
+  - web/src/App.tsx
+  - web/src/lib/routing.ts
+  - web/src/styles.css
+  backend:
+  - src/webConsole.ts
+  tests:
+  - tests/webConsoleAuth.test.ts
+  responsibility: 负责全站路由、侧边栏、页面容器、Mini App 入口与全局样式。
+  symptoms:
+  - 页面空白或错页
+  - 菜单/移动端布局异常
+  - 构建后仍显示旧页面
+- id: M01
+  name: web-auth
+  label: Web 身份与会话
+  frontend:
+  - web/src/api.ts
+  backend:
+  - src/web/auth.ts
+  - src/web/telegramInitData.ts
+  routes:
+  - /api/web/session
+  - /api/web/telegram-diagnostics
+  responsibility: 负责 Web Console、Telegram Mini App 的身份校验与会话。
+  symptoms:
+  - 网页要求凭证或返回 401
+  - 普通浏览器与 Mini App 表现不同
+  - 会话无法建立
+- id: M02
+  name: cockpit-analytics
+  label: Owner Cockpit 与经营分析
+  frontend:
+  - web/src/App.tsx
+  backend:
+  - src/web/analytics.ts
+  - src/webConsole.ts
+  tables:
+  - business_analytics_facts
+  - tasks
+  - approvals
+  responsibility: 负责首页经营驾驶、全局指标、经营分析与可视化。
+  symptoms:
+  - 经营指标为零或口径不一致
+  - 图表数据异常
+  - 首页建议不合理
+- id: M03
+  name: digital-self
+  label: A- 数字本人
+  frontend:
+  - web/src/components/ASelfConsole.tsx
+  - web/src/components/RelationshipDesk.tsx
+  backend:
+  - src/a-self/distill.ts
+  - src/a-self/engine.ts
+  - src/a-self/relationship.ts
+  - src/a-self/web-routes.ts
+  tables:
+  - a_self_profiles
+  - a_self_memory_items
+  - a_self_decision_logs
+  - a_self_permission_rules
+  - a_self_opc_runs
+  responsibility: 负责人格蒸馏、价值判断、个人记忆、决策日志与关系建议。
+  symptoms:
+  - 人格不像本人
+  - 资料蒸馏错误
+  - 建议没有人格证据
+- id: M04
+  name: command-spine
+  label: AI Command Spine
+  backend:
+  - src/brain/chiefOfStaff.ts
+  - src/brain/contextPack.ts
+  - src/ai/agentRunner.ts
+  - src/work/workStrategy.ts
+  tables:
+  - agent_runs
+  - tool_calls
+  - tasks
+  - memories
+  responsibility: 负责理解自然语言、加载上下文、替本人决策并选择 Agent、Skill 或任务。
+  symptoms:
+  - 听不懂用户任务
+  - 总把决定退回用户
+  - 错误继承上一任务上下文
+- id: M05
+  name: execution-runtime
+  label: 任务 / 队列 / Worker / 审批
+  backend:
+  - src/worker.ts
+  - src/queue/taskQueue.ts
+  - src/policy/approvalPolicy.ts
+  - src/policy/retryPolicy.ts
+  tables:
+  - tasks
+  - task_events
+  - task_dependencies
+  - approvals
+  - retry_events
+  - audit_logs
+  services:
+  - tele-opc-worker
+  logs:
+  - runtime/logs/worker.dev.log
+  responsibility: 负责任务状态、队列、Worker、审批暂停恢复、依赖和重试。
+  symptoms:
+  - 任务无反应或一直排队
+  - 审批后不继续
+  - 任务重复执行或步骤跳过
+- id: M06
+  name: agents-skills-trace
+  label: Agent / Skill / Trace
+  backend:
+  - src/agents/registry.ts
+  - src/skills/registry.ts
+  - src/ai
+  tables:
+  - skill_registry
+  - skill_versions
+  - skill_runs
+  - agent_runs
+  - tool_calls
+  responsibility: 负责 Agent 名册、Skill 选择、模型运行、工具调用和执行轨迹。
+  symptoms:
+  - Agent 未被调用
+  - 模型有输出但任务无结果
+  - Trace 找不到链路
+- id: M07
+  name: crm-prospecting
+  label: CRM / 线索 / 市场探索
+  frontend:
+  - web/src/components/LeadBrowser.tsx
+  - web/src/components/studio/CrmImportStudio.tsx
+  backend:
+  - src/crm
+  - src/prospecting
+  tables:
+  - organizations
+  - contacts
+  - opportunities
+  - follow_ups
+  - prospecting_runs
+  - leads
+  - campaigns
+  - campaign_events
+  responsibility: 负责市场扫描、公开线索、客户、机会、跟进与 Campaign。
+  symptoms:
+  - 线索抓取后 CRM 没数据
+  - 线索质量差或重复
+  - 机会和跟进没有联动
+- id: M08
+  name: mail-outreach
+  label: 邮件 / 外联
+  frontend:
+  - web/src/components/studio/MailStudio.tsx
+  backend:
+  - src/email
+  tables:
+  - email_accounts
+  - email_threads
+  - email_messages
+  - email_drafts
+  - campaign_events
+  responsibility: 负责邮箱接入、邮件线程、草稿、外联发送与历史记录。
+  symptoms:
+  - 声称发信但找不到历史
+  - 邮件未发送或重复发送
+  - 回复没有关联客户
+- id: M09
+  name: finance
+  label: 财务 Finance
+  frontend:
+  - web/src/components/studio/FinanceImportStudio.tsx
+  - web/src/components/studio/FinanceActionStudio.tsx
+  backend:
+  - src/finance
+  - src/web/studio-routes.ts
+  tables:
+  - transactions
+  - invoices
+  - subscriptions
+  - approvals
+  - artifacts
+  responsibility: 负责财务表格导入、交易、发票、订阅、分析与审批。
+  symptoms:
+  - 上传表格后无结果
+  - 财务指标或分类错误
+  - 高风险动作绕过审批
+- id: M10
+  name: calendar
+  label: 日历 Calendar
+  backend:
+  - src/calendar
+  tables:
+  - calendar_accounts
+  - calendar_events
+  - meeting_notes
+  - availability_windows
+  responsibility: 负责日历账户、日程、冲突、空闲时间和会议准备。
+  symptoms:
+  - 日程未同步
+  - 时间或时区错误
+  - 冲突没有提示
+- id: M11
+  name: browser-research
+  label: 浏览器 / 研究
+  backend:
+  - src/browser
+  - src/prospecting/webSearch.ts
+  - src/ai/capabilityTools.ts
+  tables:
+  - browser_runs
+  - browser_steps
+  - browser_screenshots
+  - browser_extractions
+  - browser_blocked_actions
+  responsibility: 负责浏览器自动化、网页研究、公开搜索、截图与证据。
+  symptoms:
+  - 搜索无结果
+  - 网页步骤卡住
+  - 没有截图或来源证据
+- id: M12
+  name: deliverables
+  label: 交付物 / PPT / Artifact
+  frontend:
+  - web/src/components/studio/DeckStudio.tsx
+  backend:
+  - src/deliverables
+  - src/delivery/deliveryStrategy.ts
+  tables:
+  - artifacts
+  responsibility: 负责 PPT、报告、文件产物、版本与交付。
+  symptoms:
+  - PPT 质量差或无法下载
+  - 任务完成但没有产物
+  - 交付版本混乱
+- id: M13
+  name: knowledge-memory
+  label: 知识 / 记忆 OS
+  frontend:
+  - web/src/components/studio/KnowledgeStudio.tsx
+  backend:
+  - src/memory
+  - src/feishu/attachmentIngestor.ts
+  tables:
+  - memories
+  - memory_sources
+  - playbooks
+  - a_self_memory_items
+  - artifacts
+  responsibility: 负责资料自动归类、知识、记忆来源、Playbook 与检索。
+  symptoms:
+  - 上传后不知道放哪里
+  - 知识未被数字本人使用
+  - 错误资料污染人格
+- id: M14
+  name: telegram-channel
+  label: Telegram 通道
+  backend:
+  - src/telegram
+  - src/auth/ownerAllowlist.ts
+  - src/app.ts
+  tables:
+  - users
+  - telegram_chats
+  - messages
+  services:
+  - tele-opc-api
+  logs:
+  - runtime/logs/api.dev.log
+  responsibility: 负责 Telegram Webhook、Bot 消息、命令、按钮、审批与 Mini App。
+  symptoms:
+  - Telegram Bot 无反应
+  - 按钮失效
+  - Mini App 认证失败
+- id: M15
+  name: feishu-channel
+  label: 飞书 Feishu / 经营台账
+  backend:
+  - src/feishu
+  - src/appos/feishu
+  - src/appos/channels/feishu.ts
+  tables:
+  - channel_messages
+  - channel_notifications
+  - artifacts
+  - tasks
+  services:
+  - tele-opc-feishu
+  logs:
+  - runtime/logs/feishu.dev.log
+  responsibility: 负责飞书消息、文件上传、审批回复、资料处理与经营台账同步。
+  symptoms:
+  - 飞书机器人收不到消息
+  - 文件无法处理
+  - 台账或审批回复不同步
+- id: M16
+  name: appos-workflows
+  label: AppOS / Dify / n8n 工作流
+  backend:
+  - src/appos/contracts
+  - src/appos/gateway
+  - src/appos/workflows
+  - src/appos/connectors
+  tables:
+  - appos_business_contracts
+  - appos_workflow_runs
+  - appos_application_events
+  - appos_failure_events
+  responsibility: 负责 Business Contract、Workflow Run、Dify/n8n 调用和失败恢复。
+  symptoms:
+  - 合同创建但工作流不跑
+  - 回调丢失
+  - 外部工作流反复失败
+- id: M17
+  name: paperclip
+  label: Paperclip 公司治理
+  frontend:
+  - web/src/components/PaperclipGovernance.tsx
+  backend:
+  - src/integrations/paperclip
+  responsibility: 负责 Paperclip 公司治理、项目、目标、Issue、Agent 与 heartbeat。
+  symptoms:
+  - 项目或 Issue 不显示
+  - heartbeat 超时
+  - 远端对象映射错误
+- id: M18
+  name: settings-dependencies
+  label: 依赖 / 设置 / 集成
+  frontend:
+  - web/src/components/studio/AgentSettingsStudio.tsx
+  backend:
+  - src/appos/dependencies/registry.ts
+  - src/config/index.ts
+  responsibility: 负责依赖检测、模型/凭证配置、权限策略和集成状态。
+  symptoms:
+  - 显示已配置但实际不可用
+  - 凭证存在但权限不足
+  - 依赖检测误报
+- id: M19
+  name: data-infra
+  label: 数据 / 基础设施 / 部署
+  backend:
+  - src/db
+  - src/server.ts
+  - src/config/index.ts
+  services:
+  - tele-opc-api
+  - tele-opc-worker
+  - tele-opc-feishu
+  logs:
+  - runtime/logs/api.dev.log
+  - runtime/logs/worker.dev.log
+  - runtime/logs/feishu.dev.log
+  - runtime/logs/web-build.log
+  responsibility: 负责 PostgreSQL、Redis DB15、迁移、systemd、构建、部署和域名入口。
+  symptoms:
+  - 网站打不开
+  - CPU 占用异常
+  - 数据库迁移或服务启动失败
+- id: M20
+  name: cps-domain
+  label: CPS / 短剧领域扩展
+  backend:
+  - src/appos/domains/cps
+  - scripts/appos
+  tests:
+  - tests/appos
+  responsibility: 负责 CPS、短剧下载、媒体预处理、剪辑与领域工作流。
+  symptoms:
+  - 平台页面变化导致抓取失败
+  - 视频下载或识别失败
+  - 媒体处理路径错误

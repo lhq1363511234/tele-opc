@@ -905,3 +905,7 @@ Tele-OPC OS 应该有用，但不能鲁莽。
 ## Paperclip 集成
 
 Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issue 编排，Tele-OPC 负责执行、Telegram、飞书台账和经营数据。详见 [`docs/PAPERCLIP_INTEGRATION.md`](docs/PAPERCLIP_INTEGRATION.md)。
+
+## 架构与故障定位
+
+项目的 Phase 实现状态、模块边界和 Bug 路由以 [架构与维护入口](./docs/architecture/README.zh-CN.md) 为准。以后提交问题时建议使用模块编号（例如 `M09 Finance`、`M15 Feishu Channel`）。

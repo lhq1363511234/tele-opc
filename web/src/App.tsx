@@ -46,6 +46,7 @@ import { FinanceImportStudio } from './components/studio/FinanceImportStudio';
 import { FinanceActionStudio } from './components/studio/FinanceActionStudio';
 import { AgentSettingsStudio } from './components/studio/AgentSettingsStudio';
 import { KnowledgeStudio } from './components/studio/KnowledgeStudio';
+import { ArchitectureMap } from './components/ArchitectureMap';
 import { ApiError, apiGet, apiPost, apiPut, getWebConsoleDevToken, setWebConsoleDevToken } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
 import {
@@ -93,6 +94,7 @@ const navItems: Array<{ id: RouteId; label: string; icon: typeof LayoutDashboard
   { id: 'browser', label: 'Browser', icon: Eye },
   { id: 'mini', label: 'Mini App', icon: Sparkles },
   { id: 'dependencies', label: 'Dependencies', icon: Settings },
+  { id: 'architecture', label: '系统架构', icon: Network },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'debug', label: 'Debug', icon: Info }
 ];
@@ -756,6 +758,8 @@ function RouteView({
       return <DependencySetupPage />;
     case 'settings':
       return <SettingsPage />;
+    case 'architecture':
+      return <ArchitectureMap />;
     case 'debug':
       return <TelegramDebugPage />;
     case 'deliverables':

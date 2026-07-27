@@ -13,6 +13,7 @@ export type RouteId =
   | 'dependencies'
   | 'ops'
   | 'settings'
+  | 'architecture'
   | 'debug'
   | 'deliverables';
 
@@ -70,6 +71,7 @@ const DEFAULT_NAV_IDS: RouteId[] = [
   'ops',
   'dependencies',
   'settings',
+  'architecture',
   'debug'
 ];
 
