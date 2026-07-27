@@ -30,7 +30,7 @@ public sealed class WechatScreenReader
     {
         ct.ThrowIfCancellationRequested();
         var hwnd = WechatWindow.Find();
-        if (hwnd == IntPtr.Zero) throw new InvalidOperationException("没有找到已登录的微信主窗口。");
+        if (hwnd == IntPtr.Zero) throw new WechatWindowUnavailableException("微信正在托盘中；打开一次微信主界面后会自动继续监听。");
 
         var notificationMessages = await ReadNotificationsAsync(hwnd, allowGroups, ct);
         using var capture = WechatWindow.Capture(hwnd);
@@ -153,7 +153,7 @@ public sealed class WechatScreenReader
     public async Task<ConversationDiagnostic> DiagnoseConversationAsync(int rowIndex, string outputDirectory, CancellationToken ct = default)
     {
         var hwnd = WechatWindow.Find();
-        if (hwnd == IntPtr.Zero) throw new InvalidOperationException("没有找到已登录的微信主窗口。");
+        if (hwnd == IntPtr.Zero) throw new WechatWindowUnavailableException("微信正在托盘中；打开一次微信主界面后会自动继续监听。");
         Directory.CreateDirectory(outputDirectory);
         using var before = WechatWindow.Capture(hwnd);
         var beforePath = Path.Combine(outputDirectory, "conversation-before.png");
@@ -177,7 +177,7 @@ public sealed class WechatScreenReader
     public async Task<ScreenReaderDiagnostic> DiagnoseAsync(string outputDirectory, CancellationToken ct = default)
     {
         var hwnd = WechatWindow.Find();
-        if (hwnd == IntPtr.Zero) throw new InvalidOperationException("没有找到已登录的微信主窗口。");
+        if (hwnd == IntPtr.Zero) throw new WechatWindowUnavailableException("微信正在托盘中；打开一次微信主界面后会自动继续监听。");
         Directory.CreateDirectory(outputDirectory);
         using var capture = WechatWindow.Capture(hwnd);
         var screenshot = Path.Combine(outputDirectory, "wechat-screen.png");
@@ -428,7 +428,7 @@ public static class WechatWindow
 
     public static Bitmap Capture(IntPtr hwnd)
     {
-        if (!GetWindowRect(hwnd, out var rect) || rect.Width < 600 || rect.Height < 400) throw new InvalidOperationException("微信窗口尺寸异常。");
+        if (!GetWindowRect(hwnd, out var rect) || rect.Width < 600 || rect.Height < 400) throw new WechatWindowUnavailableException("微信主界面当前不可读取；打开一次微信主界面后会自动继续监听。");
         var bitmap = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
         var hdc = graphics.GetHdc();
@@ -521,5 +521,7 @@ public static class WechatWindow
     [StructLayout(LayoutKind.Explicit)] struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; }
     [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
 }
+
+public sealed class WechatWindowUnavailableException(string message) : InvalidOperationException(message);
 
 public sealed record WechatPopup(IntPtr Handle, int Width, int Height, string ClassName, string Title);

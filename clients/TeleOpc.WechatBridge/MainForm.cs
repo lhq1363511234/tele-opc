@@ -7,13 +7,13 @@ public sealed class MainForm : Form
     readonly WechatLocalReader localReader = new();
     readonly WechatScreenReader screenReader = new();
     readonly SafeWechatSender safeSender = new();
+    readonly WechatDriver driver;
     readonly TextBox server = new() { Width = 360 };
     readonly TextBox token = new() { Width = 360, UseSystemPasswordChar = true };
     readonly CheckBox auto = new() { Text = "自动回复" };
     readonly CheckBox groups = new() { Text = "处理群聊" };
     readonly NumericUpDown interval = new() { Minimum = 2, Maximum = 60 };
     readonly Button toggle = new() { Text = "启动", Width = 100 };
-    readonly Button initialize = new() { Text = "尝试数据库读取（可选）", Width = 170 };
     readonly Button diagnose = new() { Text = "导出微信诊断", Width = 130 };
     readonly Label mode = new() { AutoSize = true };
     readonly TextBox log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
@@ -22,6 +22,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
+        driver = new WechatDriver(localReader, screenReader) { Log = Write };
         Text = "Tele-OPC 个人微信桥接";
         Width = 680;
         Height = 540;
@@ -35,12 +36,11 @@ public sealed class MainForm : Form
             new Label { Text = "服务器", Width = 80 }, server,
             new Label { Text = "设备令牌", Width = 80 }, token,
             auto, groups, new Label { Text = "轮询秒数" }, interval,
-            toggle, initialize, diagnose, mode
+            toggle, diagnose, mode
         ]);
         Controls.Add(log);
         Controls.Add(top);
         toggle.Click += async (_, _) => await Toggle();
-        initialize.Click += (_, _) => InitializeReader();
         diagnose.Click += (_, _) => RunDiagnose();
         auto.CheckedChanged += (_, _) => { settings.AutoReply = auto.Checked; settings.Save(); Write($"自动回复已{(auto.Checked ? "开启" : "关闭")}。"); };
         groups.CheckedChanged += (_, _) => { settings.Groups = groups.Checked; settings.Save(); Write($"群聊处理已{(groups.Checked ? "开启" : "关闭")}。"); };
@@ -66,7 +66,7 @@ public sealed class MainForm : Form
         };
         screenReader.Log = Write;
         RefreshModeLabel();
-        Write(localReader.IsInitialized ? "数据库读取可用；将优先使用数据库。" : "屏幕识别模式已就绪；首次启动只建立基线，不处理已有未读消息。");
+        Write(driver.ReadyDescription);
     }
 
     async Task Toggle()
@@ -87,7 +87,7 @@ public sealed class MainForm : Form
         settings.Save();
         cts = new CancellationTokenSource();
         toggle.Text = "暂停";
-        Write($"桥接已启动：{(localReader.IsInitialized ? "数据库读取" : screenReader.ModeDescription)}；发送前 OCR 校验；自动回复={(settings.AutoReply ? "开启" : "关闭")}。");
+        Write($"桥接已启动：{driver.ModeDescription}；发送前身份校验；自动回复={(settings.AutoReply ? "开启" : "关闭")}。");
         try { await Task.Run(() => Loop(cts.Token)); }
         catch (OperationCanceledException) { }
         finally
@@ -105,9 +105,7 @@ public sealed class MainForm : Form
             string? heartbeatError = null;
             try
             {
-                var messages = localReader.IsInitialized
-                    ? await localReader.ReadNewAsync(ct)
-                    : await screenReader.ReadNewAsync(settings.Groups, ct);
+                var messages = await driver.ReadNewAsync(settings.Groups, ct);
                 foreach (var msg in messages)
                 {
                     if (msg.isGroup && !settings.Groups) continue;
@@ -145,16 +143,6 @@ public sealed class MainForm : Form
         }
     }
 
-    void InitializeReader()
-    {
-        try
-        {
-            localReader.StartInitialization();
-            Write("已打开可选的数据库读取初始化。当前微信版本若提取不到密钥，可直接关闭窗口，屏幕识别仍可正常使用。");
-        }
-        catch (Exception e) { Write("初始化启动失败：" + e.Message); }
-    }
-
     void RunDiagnose()
     {
         try
@@ -170,8 +158,8 @@ public sealed class MainForm : Form
     void RefreshModeLabel()
     {
         mode.Text = localReader.IsInitialized
-            ? "模式：数据库读取 + 发送前 OCR 校验"
-            : "模式：微信 4.1 后台截图 + Windows 本地 OCR";
+            ? "模式：本地消息驱动 + 发送前身份校验"
+            : "模式：微信 4.1 兼容驱动（自动降级）";
     }
     void Restore() { Show(); WindowState = FormWindowState.Normal; Activate(); RefreshModeLabel(); }
     static string Preview(string text) => text.Length <= 40 ? text : text[..40] + "…";
