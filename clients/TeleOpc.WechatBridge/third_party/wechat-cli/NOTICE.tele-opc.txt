@@ -1,0 +1,5 @@
+Bundled component: wechat-cli 0.2.4
+Upstream: https://github.com/huohuoer/wechat-cli
+Revision: a3789232d4f79bf0b30634d9dadbce71e4acd601
+License: Apache-2.0 (see LICENSE)
+Tele-OPC modification: new-messages output includes raw sender/direction/message_id metadata for loop prevention.
