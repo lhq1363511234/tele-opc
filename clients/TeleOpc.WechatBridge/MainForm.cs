@@ -41,6 +41,9 @@ public sealed class MainForm : Form
         toggle.Click += async (_, _) => await Toggle();
         initialize.Click += (_, _) => InitializeReader();
         diagnose.Click += (_, _) => RunDiagnose();
+        auto.CheckedChanged += (_, _) => { settings.AutoReply = auto.Checked; settings.Save(); Write($"自动回复已{(auto.Checked ? "开启" : "关闭")}。"); };
+        groups.CheckedChanged += (_, _) => { settings.Groups = groups.Checked; settings.Save(); Write($"群聊处理已{(groups.Checked ? "开启" : "关闭")}。"); };
+        interval.ValueChanged += (_, _) => { settings.PollSeconds = (int)interval.Value; settings.Save(); };
         FormClosing += (_, _) => { cts?.Cancel(); wechat?.Dispose(); tray.Visible = false; };
         Resize += (_, _) =>
         {
