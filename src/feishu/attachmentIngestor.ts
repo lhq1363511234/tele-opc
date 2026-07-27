@@ -6,19 +6,38 @@ import type { Repositories } from '../db/repositories.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
 import { parseSpreadsheet, tablesToText } from '../finance/statementParser.js';
 import { runPersonaDistillation } from '../a-self/distill.js';
+import { buildContextPack, contextPackForAgentRuntime } from '../brain/contextPack.js';
 import type { FeishuClient, FeishuDownloadedResource } from './client.js';
 import type { FeishuMessageEvent } from './types.js';
 
 const BLOCKED_EXTENSIONS = new Set(['.exe', '.dll', '.so', '.dylib', '.sh', '.bat', '.cmd', '.ps1', '.msi', '.apk', '.app']);
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.json', '.jsonl', '.csv', '.log', '.html', '.htm']);
 const SHEET_EXTENSIONS = new Set(['.xlsx', '.xls', '.csv', '.ods']);
-const PERSONA_NAME_HINT = /(聊天|对话|记录|微信|wechat|telegram|feishu|飞书|whatsapp|conversation|chat|message|export|日记|决策|复盘)/i;
-const FINANCE_NAME_HINT = /(财务|流水|账单|银行|收支|交易|报销|发票|利润|现金流|finance|statement|transaction|invoice|expense|income)/i;
+export type AttachmentOperation =
+  | 'archive_source'
+  | 'extract_persona_evidence'
+  | 'analyze_finance'
+  | 'store_company_knowledge'
+  | 'create_project_task'
+  | 'ask_owner';
+
+export type AttachmentDisposition = {
+  title: string;
+  understanding: string;
+  reasoning: string;
+  confidence: number;
+  ownerAgent: string;
+  destinations: string[];
+  operations: AttachmentOperation[];
+  needsOwnerInput: boolean;
+  ownerQuestion: string;
+  followupTask: string;
+};
 
 type IngestResult = {
   taskId: string;
   artifactId: string;
-  kind: 'persona_source' | 'finance_sheet' | 'general_file' | 'image';
+  disposition: AttachmentDisposition;
   fileName: string;
   summary: string;
 };
@@ -55,22 +74,28 @@ export class FeishuAttachmentIngestor {
     if (BLOCKED_EXTENSIONS.has(extension)) throw new Error(`出于安全原因不自动处理可执行文件：${fileName}`);
     const hash = await sha256File(resource.localPath);
     const buffer = await fs.readFile(resource.localPath);
-    const kind = classifyAttachmentFile(fileName, buffer, resource.type);
     const existingArtifact = await this.repos.findArtifactBySha256(hash);
     if (existingArtifact) {
       return {
         taskId: existingArtifact.task_id ?? 'existing',
         artifactId: existingArtifact.id,
-        kind,
+        disposition: fallbackDisposition(fileName, '检测到相同文件，沿用已有处理结果。'),
         fileName,
-        summary: `检测到相同文件已处理，复用已有资料资产 ${existingArtifact.id}，未重复写入人格或财务数据。`
+        summary: `检测到相同文件已处理，复用已有资料资产 ${existingArtifact.id}，没有重复写入任何业务数据。`
       };
     }
+
+    const disposition = await this.decideDisposition(buffer, fileName, resource.type, context.chatId);
     const task = await this.repos.createTask({
-      title: attachmentTaskTitle(kind, fileName),
-      description: `飞书收到附件 ${fileName}，已下载并进入自动处理。`,
+      title: disposition.title || `理解并处理资料：${fileName}`,
+      description: [
+        `飞书收到附件 ${fileName}。`,
+        `数字本人理解：${disposition.understanding}`,
+        `判断依据：${disposition.reasoning}`,
+        `计划操作：${disposition.operations.join(', ')}`
+      ].join('\n'),
       originMessageId: context.originMessageId,
-      ownerAgent: kind === 'finance_sheet' ? 'finance' : kind === 'persona_source' ? 'chief_of_staff' : 'knowledge_base',
+      ownerAgent: normalizeOwnerAgent(disposition.ownerAgent),
       status: 'running',
       planningMetadata: {
         source: 'feishu_attachment',
@@ -80,12 +105,12 @@ export class FeishuAttachmentIngestor {
         filePath: resource.localPath,
         sizeBytes: resource.sizeBytes,
         sha256: hash,
-        attachmentKind: kind
+        disposition
       }
     });
     const artifact = await this.repos.createArtifact({
       taskId: task.id,
-      type: `feishu_${kind}`,
+      type: 'feishu_source_material',
       title: fileName,
       uri: resource.localPath,
       metadata: {
@@ -93,29 +118,109 @@ export class FeishuAttachmentIngestor {
         feishuMessageId: event.message_id,
         fileKey: resource.key,
         sizeBytes: resource.sizeBytes,
-        sha256: hash
+        sha256: hash,
+        disposition
       }
     });
+    await this.repos.createArtifact({
+      taskId: task.id,
+      type: 'attachment_disposition',
+      title: `${fileName} · 数字本人处置判断`,
+      uri: `tele-opc://artifacts/${artifact.id}/disposition`,
+      content: JSON.stringify(disposition, null, 2),
+      metadata: { sourceArtifactId: artifact.id, decidedBy: 'digital_self' }
+    });
 
-    let summary: string;
+    const operationResults: string[] = [];
     try {
-      if (kind === 'persona_source') summary = await this.processPersonaSource(buffer, fileName, hash, event.message_id);
-      else if (kind === 'finance_sheet') summary = await this.processFinanceSheet(buffer, fileName, task.id, artifact.id);
-      else summary = `原件已安全保存为资料资产，文件大小 ${formatBytes(resource.sizeBytes)}。当前格式暂不做内容级自动解析。`;
+      for (const operation of disposition.operations) {
+        try {
+          if (operation === 'extract_persona_evidence') {
+            operationResults.push(await this.processPersonaSource(buffer, fileName, hash, event.message_id));
+          } else if (operation === 'analyze_finance') {
+            operationResults.push(await this.processFinanceSheet(buffer, fileName, task.id, artifact.id));
+          } else if (operation === 'store_company_knowledge') {
+            operationResults.push(`已按数字本人的判断归入：${disposition.destinations.join('、') || '公司资料库'}。`);
+          } else if (operation === 'create_project_task' && disposition.followupTask) {
+            const followup = await this.repos.createTask({
+              title: disposition.followupTask.slice(0, 180),
+              description: `由资料 ${fileName} 触发。\n${disposition.reasoning}`,
+              parentTaskId: task.id,
+              ownerAgent: normalizeOwnerAgent(disposition.ownerAgent),
+              status: 'planned',
+              planningMetadata: { source: 'digital_self_attachment_decision', sourceArtifactId: artifact.id }
+            });
+            operationResults.push(`已根据资料建立后续任务 ${followup.id}：${followup.title}`);
+          } else if (operation === 'ask_owner') {
+            operationResults.push(`数字本人需要你补充：${disposition.ownerQuestion || '请说明这份资料希望达成的结果。'}`);
+          }
+        } catch (error) {
+          operationResults.push(`操作 ${operation} 未完成：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (!operationResults.length) operationResults.push('原件已安全归档，数字本人暂未决定进行内容级写入。');
+      const summary = [
+        `数字本人判断：${disposition.understanding}`,
+        `放置位置：${disposition.destinations.join('、') || '资料暂存区'}`,
+        ...operationResults
+      ].join('\n');
       await this.repos.completeTask(task.id, summary);
+      await this.repos.audit({
+        actorType: 'feishu',
+        actorId: event.sender_id,
+        action: 'feishu_attachment_ingested',
+        entityType: 'task',
+        entityId: task.id,
+        metadata: { artifactId: artifact.id, disposition, fileName, sha256: hash, sizeBytes: resource.sizeBytes }
+      });
+      return { taskId: task.id, artifactId: artifact.id, disposition, fileName, summary };
     } catch (error) {
       await this.repos.updateTaskStatus(task.id, 'failed', error instanceof Error ? error.message : String(error));
       throw error;
     }
-    await this.repos.audit({
-      actorType: 'feishu',
-      actorId: event.sender_id,
-      action: 'feishu_attachment_ingested',
-      entityType: 'task',
-      entityId: task.id,
-      metadata: { artifactId: artifact.id, kind, fileName, sha256: hash, sizeBytes: resource.sizeBytes }
+  }
+
+  private async decideDisposition(buffer: Buffer, fileName: string, resourceType: 'image' | 'file', chatId: string): Promise<AttachmentDisposition> {
+    const provider = createModelProviderFromConfig(this.config);
+    if (!provider) return fallbackDisposition(fileName, '当前模型不可用，先安全归档，等待数字本人恢复后再判断。');
+    const preview = contentPreview(buffer, fileName, resourceType);
+    const contextPack = await buildContextPack(this.repos, {
+      querySummary: `判断新上传资料 ${fileName} 应该放到哪里、如何使用`,
+      chatId
     });
-    return { taskId: task.id, artifactId: artifact.id, kind, fileName, summary };
+    const runtimeContext = contextPackForAgentRuntime(contextPack);
+    const response = await provider.chat({
+      messages: [
+        {
+          role: 'system',
+          content: [
+            '你就是当前用户本人的数字人格，不是文件分类器，也不是给用户列菜单的助手。',
+            '结合本人的人格、最近对话、公司状态和资料内容，替本人决定这份资料的意义、应放到哪里、现在应执行哪些可逆操作。',
+            '同一资料可以多路使用。不要根据文件名关键词机械分类。只有确实无法可靠判断或需要身份信息时才 ask_owner。',
+            '安全下载、格式解析和不可逆审批由系统负责；你负责业务判断、优先级和处置计划。严格输出 JSON。'
+          ].join('\n')
+        },
+        {
+          role: 'user',
+          content: [
+            '【当前数字本人和公司上下文】',
+            JSON.stringify(runtimeContext).slice(0, 30000),
+            '',
+            '【新资料】',
+            `文件名：${fileName}`,
+            `资源类型：${resourceType}`,
+            `大小：${formatBytes(buffer.length)}`,
+            `可读取内容预览：\n${preview || '当前格式没有可读取文本，只能结合文件元数据和最近对话判断。'}`,
+            '',
+            '可执行操作（可以多选）：archive_source、extract_persona_evidence、analyze_finance、store_company_knowledge、create_project_task、ask_owner。',
+            'destinations 是你根据公司和本人实际情况自由命名的业务位置，不是固定枚举。',
+            '输出：{"title":"处理任务标题","understanding":"你认为这是什么以及价值","reasoning":"为什么这样处置","confidence":0.0,"ownerAgent":"chief_of_staff|finance|crm|knowledge_base|browser","destinations":["自由命名位置"],"operations":["archive_source"],"needsOwnerInput":false,"ownerQuestion":"","followupTask":""}'
+          ].join('\n')
+        }
+      ],
+      temperature: 0.1
+    });
+    return normalizeAttachmentDisposition(parseJsonObject(response.content), fileName);
   }
 
   private async processPersonaSource(buffer: Buffer, fileName: string, hash: string, messageId: string) {
@@ -249,17 +354,6 @@ export class FeishuAttachmentIngestor {
   }
 }
 
-export function classifyAttachmentFile(fileName: string, buffer: Buffer, resourceType: 'image' | 'file'): IngestResult['kind'] {
-  if (resourceType === 'image') return 'image';
-  const ext = path.extname(fileName).toLowerCase();
-  const preview = TEXT_EXTENSIONS.has(ext) ? buffer.subarray(0, 24000).toString('utf8') : '';
-  const personaSignals = countMatches(`${fileName}\n${preview}`, /(sender|speaker|message|消息|发送者|发言人|聊天记录|nickname|微信|对话|decision|为什么|选择)/gi);
-  const financeSignals = countMatches(`${fileName}\n${preview}`, /(金额|收入|支出|余额|交易|借方|贷方|付款|收款|amount|income|expense|balance|transaction|invoice)/gi);
-  if (SHEET_EXTENSIONS.has(ext) && (FINANCE_NAME_HINT.test(fileName) || financeSignals > personaSignals)) return 'finance_sheet';
-  if ((TEXT_EXTENSIONS.has(ext) || SHEET_EXTENSIONS.has(ext)) && (PERSONA_NAME_HINT.test(fileName) || personaSignals >= financeSignals)) return 'persona_source';
-  return 'general_file';
-}
-
 function extractText(buffer: Buffer, fileName: string) {
   const ext = path.extname(fileName).toLowerCase();
   if (SHEET_EXTENSIONS.has(ext)) return tablesToText(parseSpreadsheet(buffer, fileName), 60000);
@@ -267,11 +361,58 @@ function extractText(buffer: Buffer, fileName: string) {
   return '';
 }
 
-function attachmentTaskTitle(kind: IngestResult['kind'], fileName: string) {
-  if (kind === 'persona_source') return `蒸馏数字人格资料：${fileName}`;
-  if (kind === 'finance_sheet') return `解析财务表格：${fileName}`;
-  if (kind === 'image') return `保存飞书图片：${fileName}`;
-  return `导入公司资料：${fileName}`;
+function contentPreview(buffer: Buffer, fileName: string, resourceType: 'image' | 'file') {
+  if (resourceType === 'image') return '';
+  try {
+    return extractText(buffer, fileName).slice(0, 50000);
+  } catch {
+    return '';
+  }
+}
+
+export function normalizeAttachmentDisposition(value: Record<string, unknown>, fileName: string): AttachmentDisposition {
+  const allowed = new Set<AttachmentOperation>([
+    'archive_source',
+    'extract_persona_evidence',
+    'analyze_finance',
+    'store_company_knowledge',
+    'create_project_task',
+    'ask_owner'
+  ]);
+  const operations = Array.isArray(value.operations)
+    ? value.operations.map(String).filter((item): item is AttachmentOperation => allowed.has(item as AttachmentOperation))
+    : [];
+  if (!operations.includes('archive_source')) operations.unshift('archive_source');
+  return {
+    title: stringValue(value.title) || `理解并处理资料：${fileName}`,
+    understanding: stringValue(value.understanding) || '这是用户主动交给数字本人的新资料，需要结合上下文保存并使用。',
+    reasoning: stringValue(value.reasoning) || '先保留原始证据，再执行可逆处理。',
+    confidence: clampConfidence(value.confidence),
+    ownerAgent: normalizeOwnerAgent(stringValue(value.ownerAgent)),
+    destinations: Array.isArray(value.destinations) ? value.destinations.map(String).filter(Boolean).slice(0, 8) : ['资料暂存区'],
+    operations: [...new Set(operations)],
+    needsOwnerInput: value.needsOwnerInput === true || operations.includes('ask_owner'),
+    ownerQuestion: stringValue(value.ownerQuestion),
+    followupTask: stringValue(value.followupTask)
+  };
+}
+
+function fallbackDisposition(fileName: string, reason: string): AttachmentDisposition {
+  return normalizeAttachmentDisposition({
+    title: `暂存并理解资料：${fileName}`,
+    understanding: '资料内容尚未由数字本人完成可靠判断。',
+    reasoning: reason,
+    confidence: 0.2,
+    ownerAgent: 'chief_of_staff',
+    destinations: ['数字本人资料暂存区'],
+    operations: ['archive_source', 'ask_owner'],
+    needsOwnerInput: true,
+    ownerQuestion: '请告诉我这份资料最希望达成什么结果；我会结合内容自行决定后续放置和处理。'
+  }, fileName);
+}
+
+function normalizeOwnerAgent(value: string) {
+  return ['chief_of_staff', 'finance', 'crm', 'knowledge_base', 'browser'].includes(value) ? value : 'chief_of_staff';
 }
 
 function parseJsonObject(value: string): Record<string, unknown> {
@@ -301,10 +442,6 @@ function safeSegment(value: string) {
 
 function safeFileName(value: string) {
   return value.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 180) || 'feishu-file.bin';
-}
-
-function countMatches(value: string, pattern: RegExp) {
-  return value.match(pattern)?.length ?? 0;
 }
 
 function clampConfidence(value: unknown) {

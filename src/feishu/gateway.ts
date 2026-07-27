@@ -68,7 +68,7 @@ export class FeishuGateway {
 
     let reply: string;
     if (isAttachment) {
-      await this.client.sendText({ chatId: event.chat_id }, '文件已收到，正在安全下载、识别资料类型并自动处理。');
+      await this.client.sendText({ chatId: event.chat_id }, '文件已收到。系统先安全读取，随后由你的数字本人结合资料内容、最近对话和公司状态决定放到哪里、如何处理。');
       try {
         const results = await this.attachmentIngestor.ingest(event, {
           userId: ownerContext.userId,
@@ -79,7 +79,9 @@ export class FeishuGateway {
           '附件处理完成：',
           ...results.map((result, index) => [
             `${index + 1}. ${result.fileName}`,
-            `类型：${attachmentKindLabel(result.kind)}`,
+            `数字本人判断：${result.disposition.understanding}`,
+            `放置位置：${result.disposition.destinations.join('、') || '资料暂存区'}`,
+            `执行操作：${result.disposition.operations.join('、')}`,
             `任务：${result.taskId}`,
             `结果：${result.summary}`
           ].join('\n'))
@@ -182,11 +184,4 @@ function renderApprovalPrompt(approval: {
     `或回复：拒绝 ${approval.id}`,
     '如果当前只有这一条待审批，也可以只回复“批准”或“拒绝”。批准后原任务会自动继续。'
   ].join('\n');
-}
-
-function attachmentKindLabel(kind: 'persona_source' | 'finance_sheet' | 'general_file' | 'image') {
-  if (kind === 'persona_source') return '数字人格蒸馏资料';
-  if (kind === 'finance_sheet') return '财务表格';
-  if (kind === 'image') return '图片资料';
-  return '公司通用资料';
 }
