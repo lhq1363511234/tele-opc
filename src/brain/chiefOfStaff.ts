@@ -1111,6 +1111,23 @@ export class ChiefOfStaff {
   }
 
   private async handleProgressNudge(text: string, context: BrainContext) {
+    const isStatusQuery = /查看|列出|报告|告诉我|什么状态|进度|到哪|有没有|当前.*任务|待审批|还在跑|还在执行/i.test(text)
+      && !/推进|继续|重试|启动|开始执行|怎么没回复|没有回复|不回复|卡住/i.test(text);
+    if (isStatusQuery) {
+      const [activeTasks, pendingApprovals] = await Promise.all([
+        this.repos.listTasksByStatuses(['running', 'queued'], 10),
+        this.repos.listPendingApprovals(10)
+      ]);
+      const realActiveTasks = activeTasks.filter((task) => !isNudgeOnlyTask(task));
+      return [
+        `当前执行中或排队任务：${realActiveTasks.length} 个`,
+        ...realActiveTasks.slice(0, 5).map((task) => `- ${task.id} [${task.status}] ${task.title}`),
+        '',
+        `待审批事项：${pendingApprovals.length} 个`,
+        ...pendingApprovals.slice(0, 5).map((approval) => `- ${approval.id} [${approval.risk_level}] ${approval.action_type}`)
+      ].join('\n');
+    }
+
     const runningRuns = latestRunsByStatus(await this.repos.listAgentRuns(10), 'running');
     if (runningRuns.length) {
       return [

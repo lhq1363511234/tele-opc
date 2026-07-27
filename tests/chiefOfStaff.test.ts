@@ -324,6 +324,20 @@ describe('ChiefOfStaff', () => {
     expect(repos.audits.map((audit) => audit.action)).toContain('continuation_confirmed');
   });
 
+  it('reports status queries without turning them into continuation commands', async () => {
+    const repos = new FakeRepos();
+    const dispatcher = new RecordingDispatcher();
+    const brain = new ChiefOfStaff(repos, dispatcher);
+    await repos.createTask({ title: '正在生成客户报告', ownerAgent: 'chief_of_staff', status: 'running' });
+
+    const reply = await brain.handleText('现在任务进度怎么样了？请列出待审批事项。', context);
+
+    expect(reply).toContain('当前执行中或排队任务：1 个');
+    expect(reply).toContain('正在生成客户报告');
+    expect(reply).toContain('待审批事项：0 个');
+    expect(dispatcher.jobs).toHaveLength(0);
+  });
+
   it('treats progress nudges as continuation instead of creating a new task', async () => {
     const repos = new FakeRepos();
     const dispatcher = new RecordingDispatcher();

@@ -117,6 +117,15 @@ describe('context pack', () => {
     const runtime = contextPackForAgentRuntime(pack);
     expect(runtime.runtimeState.pendingApprovals[0]?.id).toBe('apv_1');
 
+    const unrelatedRuntime = contextPackForAgentRuntime({
+      ...pack,
+      querySummary: '写一个读取 CSV 的 Python 脚本'
+    });
+    expect(unrelatedRuntime.pricingRules).toEqual([]);
+    expect(unrelatedRuntime.relevantCustomers).toEqual([]);
+    expect(unrelatedRuntime.relevantFinanceItems).toEqual([]);
+    expect(unrelatedRuntime.runtimeState.activeTasks).toEqual([]);
+
     const summary = summarizeContextPackForBriefing(pack);
     expect(summary.join('\n')).toContain('客户焦点');
   });

@@ -82,6 +82,29 @@ export interface AgentRunResult {
   }>;
 }
 
+/**
+ * Keeps the live request and retrieved context in separate, named regions.
+ * Retrieved context can contain old model output, so it is reference data,
+ * never a second instruction source.
+ */
+export function buildGroundedUserMessage(userText: string, context: Record<string, unknown>) {
+  return [
+    '# Current request',
+    '<current_request>',
+    escapeClosingTag(userText, 'current_request'),
+    '</current_request>',
+    '',
+    '# Reference context',
+    '<context_data>',
+    escapeClosingTag(JSON.stringify(context, null, 2), 'context_data'),
+    '</context_data>'
+  ].join('\n');
+}
+
+function escapeClosingTag(value: string, tag: string) {
+  return value.replace(new RegExp(`</${tag}>`, 'gi'), `&lt;/${tag}>`);
+}
+
 export class AgentRunner {
   /** Approval ids already filed in the current run, keyed by call fingerprint. */
   private readonly pendingApprovalsByFingerprint = new Map<string, string>();
@@ -112,12 +135,7 @@ export class AgentRunner {
       { role: 'system', content: request.systemPrompt },
       {
         role: 'user',
-        content: [
-          request.userText,
-          '',
-          'Context JSON:',
-          JSON.stringify(request.context ?? {}, null, 2)
-        ].join('\n')
+        content: buildGroundedUserMessage(request.userText, request.context ?? {})
       }
     ];
 
