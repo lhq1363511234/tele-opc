@@ -55,6 +55,38 @@ export class TelegramUpdateHandler {
   }
 
   async handle(update: TelegramUpdate) {
+    try {
+      await this.handleAcceptedUpdate(update);
+    } catch (error) {
+      const message = update.message ?? update.edited_message;
+      logger.error(
+        {
+          updateId: update.update_id,
+          telegramUserId: message?.from?.id,
+          telegramChatId: message?.chat.id,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        'telegram update processing failed'
+      );
+
+      // The webhook already returned HTTP 200. Without an explicit reply, a
+      // model timeout or database failure looks exactly like being ignored.
+      if (message?.from && isOwnerAllowed(message.from, this.config.telegram.ownerIds)) {
+        await this.client.sendMessage(
+          message.chat.id,
+          '任务已收到，但理解或执行入口刚刚失败了。系统已记录错误，请稍后重试；这不是你表达有问题。'
+        ).catch((notifyError) => {
+          logger.error(
+            { updateId: update.update_id, error: notifyError instanceof Error ? notifyError.message : String(notifyError) },
+            'telegram failure notification failed'
+          );
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async handleAcceptedUpdate(update: TelegramUpdate) {
     if (update.callback_query) {
       await this.handleCallbackQuery(update.callback_query, update.update_id);
       return;
@@ -84,6 +116,17 @@ export class TelegramUpdateHandler {
       userId: user.id,
       chatId: chat.id
     });
+    logger.info(
+      {
+        updateId: update.update_id,
+        inboundMessageId: inbound.id,
+        telegramMessageId: message.message_id,
+        telegramUserId: message.from!.id,
+        telegramChatId: message.chat.id,
+        textPreview: (message.text ?? message.caption ?? '').slice(0, 120)
+      },
+      'telegram inbound message persisted'
+    );
 
     const uxHandled = await this.handleTelegramUxMessage(message, {
       telegramUserId: message.from!.id,
@@ -95,6 +138,16 @@ export class TelegramUpdateHandler {
 
     await this.client.sendChatAction(message.chat.id, 'typing');
     const bridgeCommand = parseCodexBridgeCommand(message.text);
+    const shouldAcknowledge = !bridgeCommand && Boolean(message.text?.trim()) && !message.text!.trim().startsWith('/');
+    if (shouldAcknowledge) {
+      const acknowledgement = '收到。我正在理解你的目标、检查上下文并决定下一步。';
+      await this.repos.createOutboundMessage({
+        chatId: chat.id,
+        text: acknowledgement,
+        raw: { replyToUpdateId: update.update_id, source: 'telegram_intake_ack' }
+      });
+      await this.client.sendMessage(message.chat.id, acknowledgement);
+    }
     const reply = bridgeCommand
       ? await this.codexBridge.handle(bridgeCommand, {
           telegramUserId: message.from!.id,

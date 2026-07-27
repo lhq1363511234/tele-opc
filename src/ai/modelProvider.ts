@@ -75,42 +75,61 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   private readonly timeoutMs: number;
 
   async chat(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.apiKey}`,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: request.messages.map(toOpenAIMessage),
-        tools: request.tools,
-        tool_choice: request.tools?.length ? 'auto' : undefined,
-        temperature: request.temperature ?? 0.2
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs)
+    const body = JSON.stringify({
+      model: this.model,
+      messages: request.messages.map(toOpenAIMessage),
+      tools: request.tools,
+      tool_choice: request.tools?.length ? 'auto' : undefined,
+      temperature: request.temperature ?? 0.2
     });
+    const retryDelaysMs = [0, 700, 1800];
+    let lastError: unknown;
 
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      const message = typeof payload.error === 'object' && payload.error
-        ? JSON.stringify(payload.error)
-        : response.statusText;
-      throw new Error(`model_request_failed:${response.status}:${message}`);
+    for (const [attempt, delayMs] of retryDelaysMs.entries()) {
+      if (delayMs) await sleep(delayMs);
+      try {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${this.apiKey}`,
+            'content-type': 'application/json'
+          },
+          body,
+          signal: AbortSignal.timeout(this.timeoutMs)
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!response.ok) {
+          const message = typeof payload.error === 'object' && payload.error
+            ? JSON.stringify(payload.error)
+            : response.statusText;
+          const error = new Error(`model_request_failed:${response.status}:${message}`);
+          if (attempt < retryDelaysMs.length - 1 && isRetryableModelStatus(response.status)) {
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
+
+        const choice = firstChoice(payload);
+        const message = isRecord(choice?.message) ? choice.message : {};
+        const content = typeof message.content === 'string' ? message.content : '';
+        const toolCalls = Array.isArray(message.tool_calls)
+          ? message.tool_calls.map(parseToolCall).filter((item): item is ToolCallRequest => Boolean(item))
+          : [];
+
+        return {
+          content,
+          toolCalls,
+          raw: payload
+        };
+      } catch (error) {
+        lastError = error;
+        if (attempt >= retryDelaysMs.length - 1 || !isRetryableModelError(error)) throw error;
+      }
     }
 
-    const choice = firstChoice(payload);
-    const message = isRecord(choice?.message) ? choice.message : {};
-    const content = typeof message.content === 'string' ? message.content : '';
-    const toolCalls = Array.isArray(message.tool_calls)
-      ? message.tool_calls.map(parseToolCall).filter((item): item is ToolCallRequest => Boolean(item))
-      : [];
-
-    return {
-      content,
-      toolCalls,
-      raw: payload
-    };
+    throw lastError instanceof Error ? lastError : new Error('model_request_failed:unknown');
   }
 }
 
@@ -171,4 +190,18 @@ function parseJsonObject(value: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+
+function isRetryableModelStatus(status: number) {
+  return status === 408 || status === 409 || status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function isRetryableModelError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /model_request_failed:(408|409|429|502|503|504):|fetch failed|timeout|aborted|socket/i.test(error.message);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

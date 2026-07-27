@@ -56,6 +56,7 @@ export function createApp(config: AppConfig) {
         reply.code(401);
         return { ok: false, error: 'invalid webhook secret' };
       }
+      logger.info(telegramUpdateReceipt(request.body), 'telegram webhook update accepted');
       void telegramHandler.handle(request.body).catch((error) => {
         logger.error(
           { updateId: request.body.update_id, error: error instanceof Error ? error.message : String(error) },
@@ -82,4 +83,17 @@ export function createApp(config: AppConfig) {
   });
 
   return app;
+}
+
+function telegramUpdateReceipt(update: TelegramUpdate) {
+  const message = update.message ?? update.edited_message ?? update.callback_query?.message;
+  const sender = update.message?.from ?? update.edited_message?.from ?? update.callback_query?.from;
+  return {
+    updateId: update.update_id,
+    kind: update.callback_query ? 'callback_query' : update.edited_message ? 'edited_message' : update.message ? 'message' : 'unknown',
+    telegramUserId: sender?.id ?? null,
+    telegramChatId: message?.chat.id ?? null,
+    telegramMessageId: message?.message_id ?? null,
+    textPreview: (message?.text ?? message?.caption ?? '').slice(0, 120)
+  };
 }

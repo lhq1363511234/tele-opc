@@ -747,20 +747,10 @@ describe('ChiefOfStaff', () => {
     expect(repos.audits.filter((audit) => audit.action === 'ai_agent_run_completed')).toHaveLength(2);
   });
 
-  it('routes consultative questions through Domain Router, Skill Router, and Chief Agent handoff', async () => {
+  it('lets one Chief Agent interpret a consultative question without pre-routing noise', async () => {
     const repos = new FakeRepos();
     const dispatcher = new RecordingDispatcher();
     const modelProvider = new FakeModelProvider([
-      {
-        content: 'Domain Router 判断：行业是餐饮/本地生活，职能包含市场、财务、运营，风险低。',
-        toolCalls: [],
-        raw: { agent: 'domain_router' }
-      },
-      {
-        content: 'Skill Router 选择：industry.restaurant_local_life、function.market_research、function.finance_model。',
-        toolCalls: [],
-        raw: { agent: 'skill_router' }
-      },
       {
         content: 'Chief Agent 汇总：建议先做小范围验证，并让 Solution Agent 输出 7/30/90 天计划。',
         toolCalls: [],
@@ -780,27 +770,19 @@ describe('ChiefOfStaff', () => {
 
     const reply = await brain.handleText('深圳轻食外卖这个方向能不能做？', context);
 
-    expect(reply).toContain('AI Agent Handoff：已执行预路由');
-    expect(reply).toContain('domain_router -> agr_2');
-    expect(reply).toContain('skill_router -> agr_3');
     expect(reply).toContain('Chief Agent 汇总');
+    expect(reply).not.toContain('AI Agent Handoff');
     expect(repos.agentRuns.map((run) => run.agent_id)).toEqual([
       'chief_of_staff',
-      'domain_router',
-      'skill_router',
       'chief_of_staff'
     ]);
     expect(repos.agentRuns.map((run) => run.metadata.workflow)).toEqual([
       'chief_intent_classification',
-      'routing_handoff',
-      'routing_handoff',
       'chief_question'
     ]);
     expect(repos.agentRuns[0].metadata.workflow).toBe('chief_intent_classification');
-    expect(repos.agentRuns[3].metadata.handoffRunIds).toEqual(['agr_2', 'agr_3']);
-    expect(JSON.stringify(repos.agentRuns[3].input.context)).toContain('Domain Router 判断');
-    expect(JSON.stringify(repos.agentRuns[3].input.context)).toContain('Skill Router 选择');
-    expect(repos.audits.filter((audit) => audit.action === 'ai_agent_run_completed')).toHaveLength(3);
+    expect(JSON.stringify(repos.agentRuns[1].input.context)).toContain('currentUtteranceIsAuthoritative');
+    expect(repos.audits.filter((audit) => audit.action === 'ai_agent_run_completed')).toHaveLength(1);
   });
 
   it('feeds Chief Agent recent task and chat state instead of treating empty memory as no signal', async () => {
@@ -829,16 +811,6 @@ describe('ChiefOfStaff', () => {
       }
     );
     const modelProvider = new FakeModelProvider([
-      {
-        content: 'Domain Router 判断：这是查询已有获客任务状态。',
-        toolCalls: [],
-        raw: { agent: 'domain_router' }
-      },
-      {
-        content: 'Skill Router 选择：客户挖掘、CRM 跟进、项目管理。',
-        toolCalls: [],
-        raw: { agent: 'skill_router' }
-      },
       {
         content: '',
         toolCalls: [
@@ -882,12 +854,10 @@ describe('ChiefOfStaff', () => {
     expect(reply).toContain('客户挖掘任务 tsk_1');
     expect(repos.agentRuns.map((run) => run.agent_id)).toEqual([
       'chief_of_staff',
-      'domain_router',
-      'skill_router',
       'chief_of_staff'
     ]);
     expect(repos.agentRuns[0].metadata.workflow).toBe('chief_intent_classification');
-    const chiefInput = JSON.stringify(repos.agentRuns[3].input);
+    const chiefInput = JSON.stringify(repos.agentRuns[1].input);
     expect(chiefInput).toContain('runtimeState');
     expect(chiefInput).toContain('客户挖掘任务');
     expect(chiefInput).toContain('帮我挖掘 SaaS 领域客户');
@@ -902,16 +872,6 @@ describe('ChiefOfStaff', () => {
     const repos = new FakeRepos();
     const dispatcher = new RecordingDispatcher();
     const modelProvider = new FakeModelProvider([
-      {
-        content: 'Domain Router 判断：这是本地生活创业验证和获客问题。',
-        toolCalls: [],
-        raw: { agent: 'domain_router' }
-      },
-      {
-        content: 'Skill Router 选择：餐饮本地生活、市场调研、客户挖掘和财务模型。',
-        toolCalls: [],
-        raw: { agent: 'skill_router' }
-      },
       {
         content: '',
         toolCalls: [
@@ -973,31 +933,29 @@ describe('ChiefOfStaff', () => {
     const reply = await brain.handleText('深圳健康轻食外卖品牌预算 10 万，能不能做，怎么获客？', context);
 
     expect(reply).toContain('Specialist Handoff：已并行执行 3/3');
-    expect(reply).toContain('solution -> agr_5');
-    expect(reply).toContain('prospecting -> agr_6');
-    expect(reply).toContain('finance -> agr_7');
+    expect(reply).toContain('solution -> agr_3');
+    expect(reply).toContain('prospecting -> agr_4');
+    expect(reply).toContain('finance -> agr_5');
     expect(reply).toContain('非邮件批量触达不会执行');
     expect(repos.agentRuns.map((run) => run.agent_id)).toEqual([
       'chief_of_staff',
-      'domain_router',
-      'skill_router',
       'chief_of_staff',
       'solution',
       'prospecting',
       'finance'
     ]);
     expect(repos.agentRuns[0].metadata.workflow).toBe('chief_intent_classification');
-    expect(repos.agentRuns[3].metadata).toMatchObject({
+    expect(repos.agentRuns[1].metadata).toMatchObject({
       specialistHandoffTaskId: 'tsk_1',
-      specialistRunIds: ['agr_5', 'agr_6', 'agr_7'],
+      specialistRunIds: ['agr_3', 'agr_4', 'agr_5'],
       specialistExecutionMode: 'parallel',
       partialResultCount: 3,
       specialistFailureCount: 0
     });
-    expect(repos.agentRuns[4].metadata).toMatchObject({
+    expect(repos.agentRuns[2].metadata).toMatchObject({
       workflow: 'specialist_handoff',
       handoffStage: 'specialist',
-      handoffRootRunId: 'agr_4',
+      handoffRootRunId: 'agr_2',
       specialistExecutionMode: 'parallel',
       attempt: 1,
       maxAttempts: 2
@@ -1026,16 +984,16 @@ describe('ChiefOfStaff', () => {
     expect(repos.dependencies).toHaveLength(0);
     expect(repos.audits.map((audit) => audit.action)).toContain('specialist_handoff_completed');
 
-    const chiefTrace = await brain.handleText('/trace agr_4', context);
-    expect(chiefTrace).toContain('specialistRunIds:agr_5,agr_6,agr_7');
+    const chiefTrace = await brain.handleText('/trace agr_2', context);
+    expect(chiefTrace).toContain('specialistRunIds:agr_3,agr_4,agr_5');
     expect(chiefTrace).toContain('关联 Agent Runs：');
-    expect(chiefTrace).toContain('agr_5 [done] agent:solution');
-    expect(chiefTrace).toContain('agr_6 [done] agent:prospecting');
-    expect(chiefTrace).toContain('agr_7 [done] agent:finance');
+    expect(chiefTrace).toContain('agr_3 [done] agent:solution');
+    expect(chiefTrace).toContain('agr_4 [done] agent:prospecting');
+    expect(chiefTrace).toContain('agr_5 [done] agent:finance');
 
     const specialistTrace = await brain.handleText('/trace agr_5', context);
-    expect(specialistTrace).toContain('handoffRootRunId:agr_4');
-    expect(specialistTrace).toContain('agr_4 [done] agent:chief_of_staff');
+    expect(specialistTrace).toContain('handoffRootRunId:agr_2');
+    expect(specialistTrace).toContain('agr_2 [done] agent:chief_of_staff');
 
     const guardrails = await brain.handleText('/settings guardrails', context);
     expect(guardrails).toContain('Guardrails Console');

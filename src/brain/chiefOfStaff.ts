@@ -1009,25 +1009,32 @@ export class ChiefOfStaff {
     context: BrainContext,
     extraContext: Record<string, unknown> = {}
   ) {
-    const routingHandoff = await this.runRoutingHandoff(text, context);
+    // One user utterance should have one owner. Previously every question was
+    // interpreted independently by domain_router, skill_router and Chief, then
+    // all three received a large history pack. That made a simple sentence get
+    // rewritten into an unrelated "global business diagnosis". Chief can call
+    // tools or request a specialist itself when the current request truly needs
+    // one; pre-routing is neither necessary nor reliable here.
     const aiResult = await this.runAIAgent('chief_of_staff', text, context, undefined, {
-      workflow: 'chief_question',
-      handoffRunIds: routingHandoff.map((result) => result.runId)
+      workflow: 'chief_question'
     }, {
       ...extraContext,
-      routingHandoff: routingHandoff.map(toHandoffContext)
+      interpretationPolicy: {
+        currentUtteranceIsAuthoritative: true,
+        historyUse: 'resolve explicit references only',
+        doNotExpandGoal: true,
+        askOnlyIfActionIsBlocked: true
+      }
     });
     if (aiResult) {
       const specialistHandoff = await this.runSpecialistHandoffFromChief(
         text,
         context,
-        routingHandoff,
+        [],
         aiResult
       );
       return [
-        this.renderAIAgentHandoff(routingHandoff),
-        '',
-        this.renderAIAgentResult(aiResult),
+        renderAgentContentForTelegram(aiResult.content),
         specialistHandoff ? '' : '',
         specialistHandoff ? this.renderSpecialistHandoffExecution(specialistHandoff) : ''
       ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n');
@@ -1072,7 +1079,7 @@ export class ChiefOfStaff {
           workflow: 'chief_intent_classification'
         }
       });
-      const decision = parseChiefIntentDecision(result.content);
+      const decision = normalizeChiefIntentDecision(parseChiefIntentDecision(result.content), intake.normalizedText);
       await this.repos.audit({
         actorType: 'system',
         action: 'chief_intent_classified',
@@ -2261,6 +2268,7 @@ export class ChiefOfStaff {
           `原话：${text}`,
           '',
           '规则：',
+          '- 当前原话是唯一目标来源。不得从历史任务联想、补写或替换用户没有要求的目标',
           '- 每一步必须是一个能真正做的动作，不能是原话的片段或标点切片',
           '- title 用祈使句写清楚要做什么，10-30 字',
           '- description 写清楚这一步的产出和判断标准',
@@ -2309,6 +2317,11 @@ export class ChiefOfStaff {
           ownerAgent: knownAgents.includes(step.owner ?? '') ? (step.owner as string) : 'chief_of_staff'
         }));
       if (steps.length < 2) return 'single_action';
+      // A sequence of implementation details is not a workflow. If one agent
+      // owns every proposed step, it should receive the user's complete goal
+      // once and decide its own internal procedure. This prevents "write one
+      // script" becoming three queued tasks that each restate part of it.
+      if (new Set(steps.map((step) => step.ownerAgent)).size === 1) return 'single_action';
 
       return {
         goal: (parsed.goal ?? text).slice(0, 200),
@@ -4342,7 +4355,7 @@ function buildChiefIntentPrompt(intake: ReturnType<typeof intakeMessage>) {
     '- question：用户在问状态、上下文、解释、诊断、方案或让 Chief 思考，不应该新建普通任务',
     '- progress：用户在催促、查询进度、问任务推进情况，不应该新建任务',
     '- continuation：用户在确认继续执行上一条任务或上一条建议',
-    '- content：用户明确要生成内容草稿、文章、社媒文案、脚本等',
+    '- content：用户明确要生成文章、社媒文案、视频口播稿、营销内容等非代码内容',
     '- domain_record：用户要记录或打开某个业务域数据，例如 CRM、邮件、财务、日历、浏览器、公司记忆或看板',
     '- task：用户明确要创建、执行、排查、开发、研究、挖掘、规划一个新工作项',
     '- unknown：信息不足，无法判断',
@@ -4352,6 +4365,12 @@ function buildChiefIntentPrompt(intake: ReturnType<typeof intakeMessage>) {
     'task 或 content 如有明显业务方向，也可以填写 targetWorkflow，例如 prospecting、solution、dev、quote、content 不在 targetWorkflow 可填 unknown。',
     '',
     '重要规则：',
+    '- 只分类用户当前这句话表达的动作。历史上下文只能解析“刚才那个/继续/它”等明确指代，不能把旧目标覆盖到当前消息上。',
+    '- 名词不是意图：消息里出现“客户”“报价”“财务”“网站”不代表用户要进入对应业务流程；必须看用户对它要求的动作。',
+    '- “Python/JavaScript/Shell 脚本、可运行脚本、代码脚本”是 dev/task，不是 content；只有“视频脚本、口播脚本、短剧脚本”才是 content。',
+    '- “不要执行，只复述/只告诉我你的理解”是 question，必须按当前原话回答，不得创建任务。',
+    '- 用户要求“做出来/处理/执行/修复/研究”通常是 task；要求“解释/告诉我/为什么/你怎么理解”通常是 question。',
+    '- 信息足以按合理默认值启动时不要判 unknown；只有缺少后会改变任务本质的核心对象或动作时才判 unknown。',
     '- “继续/推进/开始执行/怎么没回复/怎么样了/任务到哪了”优先判为 continuation 或 progress，不要判为 task。',
     '- “还有什么任务需要推进/刚刚那个任务/最近上下文里有没有...”是 question 或 progress，不要判为 task。',
     '- 涉及付款、报价确认、广告投放、付费数据源、外部提交、发布、生产部署、删除时仍可分类，但执行层会另做审批。',
@@ -4361,6 +4380,24 @@ function buildChiefIntentPrompt(intake: ReturnType<typeof intakeMessage>) {
     '用户消息：',
     intake.normalizedText
   ].join('\n');
+}
+
+function normalizeChiefIntentDecision(
+  decision: ChiefIntentDecision | null,
+  text: string
+): ChiefIntentDecision | null {
+  if (!decision) return null;
+  const normalized = text.trim();
+  const asksOnlyForUnderstanding = /(不要|无需|不需要).{0,8}(执行|开始|创建任务)|只(告诉|说|复述|解释).{0,8}(理解|意思|目标)/i.test(normalized);
+  if (asksOnlyForUnderstanding) {
+    return { ...decision, route: 'question', targetWorkflow: 'unknown', confidence: Math.max(decision.confidence, 0.95) };
+  }
+
+  const isCodeScript = /(?:Python|JavaScript|TypeScript|Node(?:\.js)?|Shell|Bash|PowerShell|PHP|Go|Rust|Java|代码|可运行).{0,16}脚本|脚本.{0,16}(?:Python|JavaScript|TypeScript|Node(?:\.js)?|Shell|Bash|PowerShell|代码|运行)/i.test(normalized);
+  if (isCodeScript && decision.route === 'content') {
+    return { ...decision, route: 'task', targetWorkflow: 'dev', confidence: Math.max(decision.confidence, 0.95) };
+  }
+  return decision;
 }
 
 function parseChiefIntentDecision(content: string): ChiefIntentDecision | null {
