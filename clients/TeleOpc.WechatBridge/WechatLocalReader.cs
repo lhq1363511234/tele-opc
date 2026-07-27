@@ -24,7 +24,7 @@ public sealed class WechatLocalReader
     {
         if (!IsBundled) throw new InvalidOperationException("本地消息读取组件未安装，请下载完整安装包。");
         if (!IsInitialized) throw new InvalidOperationException("本地消息读取尚未初始化，请点击“初始化消息读取”。");
-        var result = await RunAsync("-m wechat_cli.main new-messages --format json", ct);
+        var result = await RunAsync(["-c", PythonBootstrap(), "new-messages", "--format", "json"], ct);
         if (result.ExitCode != 0) throw new InvalidOperationException(CleanError(result.Error, result.Output));
         using var doc = JsonDocument.Parse(ExtractJson(result.Output));
         var list = new List<WechatInbound>();
@@ -58,7 +58,8 @@ public sealed class WechatLocalReader
         if (!IsBundled) throw new InvalidOperationException("本地消息读取组件未安装，请下载完整安装包。");
         Directory.CreateDirectory(stateRoot);
         var cmdPath = Path.Combine(stateRoot, "initialize-wechat-reader.cmd");
-        var script = $"@echo off\r\nchcp 65001>nul\r\nset \"HOME={QuoteForSet(stateRoot)}\"\r\nset \"USERPROFILE={QuoteForSet(stateRoot)}\"\r\nset \"PYTHONPATH={QuoteForSet(moduleRoot)}\"\r\n\"{python}\" -m wechat_cli.main init --force\r\necho.\r\necho 初始化窗口可以关闭了。\r\npause\r\n";
+        var bootstrap = PythonBootstrap().Replace("\"", "\\\"");
+        var script = $"@echo off\r\nchcp 65001>nul\r\nset \"HOME={QuoteForSet(stateRoot)}\"\r\nset \"USERPROFILE={QuoteForSet(stateRoot)}\"\r\n\"{python}\" -c \"{bootstrap}\" --version\r\nif errorlevel 1 (echo. & echo [ERROR] 内置消息读取模块加载失败。 & pause & exit /b 1)\r\n\"{python}\" -c \"{bootstrap}\" init --force\r\nif errorlevel 1 (echo. & echo [ERROR] 初始化失败，请把本窗口最后几行发给智能体。 & pause & exit /b 1)\r\necho.\r\necho 初始化完成，窗口可以关闭了。\r\npause\r\n";
         File.WriteAllText(cmdPath, script, new UTF8Encoding(false));
         Process.Start(new ProcessStartInfo
         {
@@ -70,14 +71,13 @@ public sealed class WechatLocalReader
         });
     }
 
-    async Task<ProcessResult> RunAsync(string arguments, CancellationToken ct)
+    async Task<ProcessResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken ct)
     {
         Directory.CreateDirectory(stateRoot);
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
             FileName = python,
-            Arguments = arguments,
             WorkingDirectory = stateRoot,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -86,6 +86,7 @@ public sealed class WechatLocalReader
             StandardErrorEncoding = Encoding.UTF8,
             CreateNoWindow = true
         };
+        foreach (var argument in arguments) process.StartInfo.ArgumentList.Add(argument);
         process.StartInfo.Environment["HOME"] = stateRoot;
         process.StartInfo.Environment["USERPROFILE"] = stateRoot;
         process.StartInfo.Environment["PYTHONPATH"] = moduleRoot;
@@ -95,6 +96,8 @@ public sealed class WechatLocalReader
         await process.WaitForExitAsync(ct);
         return new ProcessResult(process.ExitCode, await stdout, await stderr);
     }
+
+    static string PythonBootstrap() => "import os,sys;sys.path.insert(0,os.path.abspath(os.path.join(os.path.dirname(sys.executable),'..','wechat-cli')));from wechat_cli.main import cli;cli()";
 
     static string ExtractJson(string output)
     {

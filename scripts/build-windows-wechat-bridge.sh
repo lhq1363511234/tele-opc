@@ -17,7 +17,7 @@ import sys,zipfile,pathlib
 src,out=sys.argv[1:]
 with zipfile.ZipFile(src) as z:z.extractall(out)
 pth=next(pathlib.Path(out).glob('python*._pth'))
-pth.write_text('python312.zip\n.\nLib\\site-packages\nimport site\n')
+pth.write_text('python312.zip\n.\n..\\wechat-cli\nLib\\site-packages\nimport site\n')
 PY
 WHEELS="$CACHE/wheels-cp312-win_amd64"
 mkdir -p "$WHEELS"
