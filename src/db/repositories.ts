@@ -1854,6 +1854,20 @@ export class Repositories {
     return result.rows as PlaybookRecord[];
   }
 
+  async findArtifactBySha256(sha256: string) {
+    const result = await this.pool.query(
+      `
+      SELECT *
+      FROM artifacts
+      WHERE metadata->>'sha256' = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [sha256]
+    );
+    return (result.rows[0] as ArtifactRecord | undefined) ?? null;
+  }
+
   async createArtifact(params: ArtifactParams) {
     const id = `art_${randomUUID()}`;
     const result = await this.pool.query(
