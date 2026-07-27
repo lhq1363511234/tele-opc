@@ -117,6 +117,19 @@ describe('context pack', () => {
     const runtime = contextPackForAgentRuntime(pack);
     expect(runtime.runtimeState.pendingApprovals[0]?.id).toBe('apv_1');
 
+    expect(runtime.personaNotice).toContain('persona 尚未蒸馏');
+
+    const personaRuntime = contextPackForAgentRuntime({
+      ...pack,
+      persona: {
+        ...pack.persona,
+        available: true,
+        displayName: 'A-本人'
+      }
+    });
+    expect(personaRuntime.personaNotice).toContain('当前用户本人在系统中的决策模型');
+    expect(personaRuntime.personaNotice).toContain('主动决定做什么、先做什么以及如何取舍');
+
     const unrelatedRuntime = contextPackForAgentRuntime({
       ...pack,
       querySummary: '写一个读取 CSV 的 Python 脚本'
