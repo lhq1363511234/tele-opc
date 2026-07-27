@@ -1,0 +1,7 @@
+/root/opt/tele-opc/runtime/windows-bridge/TeleOpc.WechatBridge.pdb
+/root/opt/tele-opc/runtime/windows-bridge/D3DCompiler_47_cor3.dll
+/root/opt/tele-opc/runtime/windows-bridge/PenImc_cor3.dll
+/root/opt/tele-opc/runtime/windows-bridge/PresentationNative_cor3.dll
+/root/opt/tele-opc/runtime/windows-bridge/vcruntime140_cor3.dll
+/root/opt/tele-opc/runtime/windows-bridge/wpfgfx_cor3.dll
+/root/opt/tele-opc/runtime/windows-bridge/TeleOpc.WechatBridge.exe
