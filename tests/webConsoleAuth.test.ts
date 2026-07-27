@@ -50,7 +50,11 @@ function config(partial: Partial<AppConfig['app']> & { authMode?: 'auto' | 'open
       baseAppToken: '',
       openBaseUrl: 'https://open.feishu.cn/open-apis',
       mirrorEnabled: false,
-      autoSyncIntervalMs: 60000
+      autoSyncIntervalMs: 60000,
+      chatEnabled: false,
+      ownerOpenIds: [],
+      cliPath: 'lark-cli',
+      approvalPollIntervalMs: 10000
     },
     yaml: {}
   };

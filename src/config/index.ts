@@ -50,6 +50,10 @@ const envSchema = z.object({
   APPOS_FEISHU_OPEN_BASE_URL: z.string().default('https://open.feishu.cn/open-apis'),
   APPOS_FEISHU_MIRROR_ENABLED: envBool(false),
   APPOS_FEISHU_AUTO_SYNC_INTERVAL_MS: z.coerce.number().int().min(15000).max(86400000).default(60000),
+  FEISHU_CHAT_ENABLED: envBool(false),
+  FEISHU_OWNER_OPEN_IDS: z.string().default(''),
+  FEISHU_CLI_PATH: z.string().default('lark-cli'),
+  FEISHU_APPROVAL_POLL_INTERVAL_MS: z.coerce.number().int().min(3000).max(300000).default(10000),
   PAPERCLIP_ENABLED: envBool(false),
   PAPERCLIP_API_URL: z.string().default('http://127.0.0.1:3101'),
   PAPERCLIP_API_KEY: z.string().default(''),
@@ -75,6 +79,10 @@ export function loadConfig() {
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id));
 
+  const feishuOwnerOpenIds = env.FEISHU_OWNER_OPEN_IDS.split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+
   return {
     app: {
       env: env.APP_ENV,
@@ -96,7 +104,11 @@ export function loadConfig() {
       baseAppToken: env.APPOS_FEISHU_BASE_APP_TOKEN,
       openBaseUrl: env.APPOS_FEISHU_OPEN_BASE_URL,
       mirrorEnabled: env.APPOS_FEISHU_MIRROR_ENABLED,
-      autoSyncIntervalMs: env.APPOS_FEISHU_AUTO_SYNC_INTERVAL_MS
+      autoSyncIntervalMs: env.APPOS_FEISHU_AUTO_SYNC_INTERVAL_MS,
+      chatEnabled: env.FEISHU_CHAT_ENABLED,
+      ownerOpenIds: feishuOwnerOpenIds,
+      cliPath: env.FEISHU_CLI_PATH,
+      approvalPollIntervalMs: env.FEISHU_APPROVAL_POLL_INTERVAL_MS
     },
     paperclip: {
       enabled: env.PAPERCLIP_ENABLED,

@@ -1520,6 +1520,183 @@ export class Repositories {
     return (result.rows[0] as ApprovalRecord | undefined) ?? null;
   }
 
+  async getPrimaryOwnerConversation(telegramOwnerIds: number[]) {
+    const result = await this.pool.query(
+      `
+      SELECT
+        users.id AS user_id,
+        users.telegram_user_id,
+        owner_chat.chat_id
+      FROM users
+      JOIN LATERAL (
+        SELECT messages.chat_id
+        FROM messages
+        WHERE messages.user_id = users.id
+          AND messages.chat_id IS NOT NULL
+        ORDER BY messages.created_at DESC
+        LIMIT 1
+      ) AS owner_chat ON true
+      WHERE ($1::bigint[] = ARRAY[]::bigint[] OR users.telegram_user_id = ANY($1::bigint[]))
+      ORDER BY users.updated_at DESC
+      LIMIT 1
+      `,
+      [telegramOwnerIds]
+    );
+    const row = result.rows[0] as { user_id: string; telegram_user_id: string | number; chat_id: string } | undefined;
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      telegramUserId: Number(row.telegram_user_id),
+      chatId: row.chat_id
+    };
+  }
+
+  async createChannelInboundMessage(params: {
+    channel: string;
+    externalMessageId: string;
+    externalChatId: string;
+    externalUserId?: string;
+    userId: string;
+    chatId: string;
+    text: string;
+    raw?: Record<string, unknown>;
+  }) {
+    const channelMessageId = `chm_${randomUUID()}`;
+    const inserted = await this.pool.query(
+      `
+      INSERT INTO channel_messages (
+        id, channel, external_message_id, external_chat_id, external_user_id, direction, text, raw
+      ) VALUES ($1, $2, $3, $4, $5, 'inbound', $6, $7)
+      ON CONFLICT (channel, external_message_id) DO NOTHING
+      RETURNING id
+      `,
+      [
+        channelMessageId,
+        params.channel,
+        params.externalMessageId,
+        params.externalChatId,
+        params.externalUserId ?? null,
+        params.text,
+        JSON.stringify(params.raw ?? {})
+      ]
+    );
+    if (!inserted.rowCount) {
+      const existing = await this.pool.query(
+        'SELECT internal_message_id FROM channel_messages WHERE channel = $1 AND external_message_id = $2',
+        [params.channel, params.externalMessageId]
+      );
+      return {
+        duplicate: true,
+        internalMessageId: (existing.rows[0]?.internal_message_id as string | null | undefined) ?? undefined
+      };
+    }
+
+    const internalMessageId = `msg_${randomUUID()}`;
+    await this.pool.query(
+      `
+      INSERT INTO messages (id, chat_id, user_id, direction, text, raw)
+      VALUES ($1, $2, $3, 'inbound', $4, $5)
+      `,
+      [
+        internalMessageId,
+        params.chatId,
+        params.userId,
+        params.text,
+        JSON.stringify({ channel: params.channel, ...params.raw })
+      ]
+    );
+    await this.pool.query(
+      'UPDATE channel_messages SET internal_message_id = $2 WHERE id = $1',
+      [channelMessageId, internalMessageId]
+    );
+    return { duplicate: false, internalMessageId };
+  }
+
+  async createChannelOutboundMessage(params: {
+    id?: string;
+    channel: string;
+    externalMessageId: string;
+    externalChatId: string;
+    externalUserId?: string;
+    chatId: string;
+    text: string;
+    raw?: Record<string, unknown>;
+  }) {
+    const internalMessageId = `msg_${randomUUID()}`;
+    await this.pool.query(
+      `
+      INSERT INTO messages (id, chat_id, direction, text, raw)
+      VALUES ($1, $2, 'outbound', $3, $4)
+      `,
+      [internalMessageId, params.chatId, params.text, JSON.stringify({ channel: params.channel, ...params.raw })]
+    );
+    const result = await this.pool.query(
+      `
+      INSERT INTO channel_messages (
+        id, channel, external_message_id, external_chat_id, external_user_id,
+        direction, text, internal_message_id, raw
+      ) VALUES ($1, $2, $3, $4, $5, 'outbound', $6, $7, $8)
+      ON CONFLICT (channel, external_message_id) DO NOTHING
+      RETURNING *
+      `,
+      [
+        params.id ?? `chm_${randomUUID()}`,
+        params.channel,
+        params.externalMessageId,
+        params.externalChatId,
+        params.externalUserId ?? null,
+        params.text,
+        internalMessageId,
+        JSON.stringify(params.raw ?? {})
+      ]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async findNotificationEntityByExternalMessage(channel: string, externalMessageId: string) {
+    const result = await this.pool.query(
+      `
+      SELECT entity_type, entity_id
+      FROM channel_notifications
+      WHERE channel = $1 AND external_message_id = $2
+      LIMIT 1
+      `,
+      [channel, externalMessageId]
+    );
+    return (result.rows[0] as { entity_type: string; entity_id: string } | undefined) ?? null;
+  }
+
+  async reserveChannelNotification(params: {
+    channel: string;
+    recipientId: string;
+    entityType: string;
+    entityId: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `chn_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO channel_notifications (id, channel, recipient_id, entity_type, entity_id, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (channel, recipient_id, entity_type, entity_id) DO NOTHING
+      RETURNING *
+      `,
+      [id, params.channel, params.recipientId, params.entityType, params.entityId, JSON.stringify(params.metadata ?? {})]
+    );
+    return result.rows[0] as { id: string } | undefined;
+  }
+
+  async completeChannelNotification(id: string, externalMessageId: string) {
+    await this.pool.query(
+      'UPDATE channel_notifications SET external_message_id = $2 WHERE id = $1',
+      [id, externalMessageId]
+    );
+  }
+
+  async deleteChannelNotification(id: string) {
+    await this.pool.query('DELETE FROM channel_notifications WHERE id = $1', [id]);
+  }
+
   async createMemory(params: {
     type: MemoryType;
     content: string;

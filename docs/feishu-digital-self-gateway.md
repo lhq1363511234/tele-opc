@@ -1,0 +1,34 @@
+# 飞书数字本人入口
+
+## 使用方式
+
+- 在飞书中找到 Tele-OPC 应用机器人，直接私聊发送自然语言任务。
+- 消息进入现有 `ChiefOfStaff`，与 Telegram / Web 共用同一人格、记忆、任务、审批和 Worker；飞书不是另一套人格。
+- 当任务触发付款、签约、外发、战略变化等审批红线时，系统会主动在飞书发出审批通知。
+- 只有一条待审批时，可直接回复 `批准` 或 `拒绝`。
+- 多条待审批时，回复 `批准 apv_xxx` 或 `拒绝 apv_xxx`。
+- 如果直接回复某一条审批通知，即使同时有多条待审批，系统也会按照被回复的消息关联到正确审批。
+- 批准后关联任务重新进入原 Worker 队列并继续执行；拒绝后关联任务进入 `blocked`。
+
+## 通道边界
+
+- 当前人工决策入口：Telegram、Web 控制台、飞书。
+- 邮箱目前只承担业务邮件能力，不作为审批回复入口。
+- 飞书当前仅接受允许列表中的所有者 Open ID，且只处理机器人私聊文本消息。
+- `message_id` 在 `channel_messages` 中做幂等，防止飞书事件重投造成重复任务。
+
+## 运行服务
+
+```bash
+systemctl status tele-opc-feishu
+lark-cli event status --json
+```
+
+配置项：
+
+```text
+FEISHU_CHAT_ENABLED=true
+FEISHU_OWNER_OPEN_IDS=ou_xxx
+FEISHU_CLI_PATH=lark-cli
+FEISHU_APPROVAL_POLL_INTERVAL_MS=10000
+```

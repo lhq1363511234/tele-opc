@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/src/server.js",
     "worker": "tsx src/worker.ts",
+    "feishu:worker": "tsx src/feishu/eventWorker.ts",
     "worker:prod": "node dist/src/worker.js",
     "build": "npm run build:server && npm run web:build",
     "build:server": "tsc -p tsconfig.json",
