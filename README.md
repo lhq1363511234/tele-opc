@@ -1132,3 +1132,7 @@ Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issu
 ## Architecture and bug routing
 
 Use the [architecture and maintenance index](./docs/architecture/README.zh-CN.md) as the source of truth for phase status, module boundaries, and bug ownership. Bug reports should include a module ID such as `M09 Finance` or `M15 Feishu Channel`.
+
+## WeChat iLink integration assessment
+
+See [`docs/integrations/WECHAT_ILINK_ASSESSMENT.zh-CN.md`](docs/integrations/WECHAT_ILINK_ASSESSMENT.zh-CN.md) for the reviewed protocol baseline, production risks, and the proposed Tele-OPC M21 channel design.

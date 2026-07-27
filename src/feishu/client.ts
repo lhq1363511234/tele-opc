@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { FeishuSendResult } from './types.js';
+import type { FeishuListedMessage, FeishuSendResult } from './types.js';
 
 export interface FeishuDownloadedResource {
   messageId: string;
@@ -30,6 +30,29 @@ export class FeishuClient {
       chatId: stringValue(body.chat_id) || stringValue(body.chatId) || undefined,
       createTime: stringValue(body.create_time) || stringValue(body.createTime) || undefined
     };
+  }
+
+  async listChatMessages(chatId: string, limit = 50): Promise<FeishuListedMessage[]> {
+    const output = await runCli(this.cliPath, [
+      'im', '+chat-messages-list', '--chat-id', chatId, '--as', 'bot',
+      '--order', 'desc', '--page-size', String(Math.max(1, Math.min(limit, 50))),
+      '--no-reactions', '--json'
+    ]);
+    const body = unwrapData(parseCliJson(output.stdout));
+    const messages = Array.isArray(body.messages) ? body.messages.filter(isRecord) : [];
+    return messages.map((message) => {
+      const sender = isRecord(message.sender) ? message.sender : {};
+      return {
+        chatId: stringValue(message.chat_id) || chatId,
+        content: plainMessageContent(stringValue(message.content)),
+        createTime: stringValue(message.create_time),
+        messageId: stringValue(message.message_id),
+        messageType: stringValue(message.msg_type) || 'text',
+        replyTo: stringValue(message.reply_to) || undefined,
+        senderId: stringValue(sender.id),
+        senderType: stringValue(sender.sender_type)
+      };
+    }).filter((message) => message.messageId && message.senderId);
   }
 
   async downloadMessageResources(messageId: string, workingDirectory: string): Promise<{
@@ -101,6 +124,17 @@ async function runCli(command: string, args: string[], cwd?: string) {
       else reject(new Error(`lark-cli exited ${code}: ${stderr || stdout}`));
     });
   });
+}
+
+function plainMessageContent(value: string) {
+  return value
+    .replace(/<p>/gi, '')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
 }
 
 function parseCliJson(output: string): Record<string, unknown> {

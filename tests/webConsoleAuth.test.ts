@@ -55,6 +55,8 @@ function config(partial: Partial<AppConfig['app']> & { authMode?: 'auto' | 'open
       ownerOpenIds: [],
       cliPath: 'lark-cli',
       approvalPollIntervalMs: 10000,
+      messagePollIntervalMs: 15000,
+      pollChatIds: [],
       attachmentMaxBytes: 52428800
     },
     yaml: {}

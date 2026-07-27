@@ -1329,27 +1329,79 @@ export class Repositories {
     return (result.rows[0] as TaskRecord | undefined) ?? null;
   }
 
-  async getTaskTelegramTarget(taskId: string) {
+  async getTaskNotificationTarget(taskId: string) {
     const result = await this.pool.query(
       `
       SELECT
-        telegram_chats.id AS chat_id,
-        telegram_chats.telegram_chat_id
+        messages.chat_id AS internal_chat_id,
+        messages.raw->>'channel' AS origin_channel,
+        telegram_chats.telegram_chat_id,
+        channel_messages.external_chat_id,
+        channel_messages.external_user_id
       FROM tasks
       LEFT JOIN tasks parent_tasks ON parent_tasks.id = tasks.parent_task_id
       LEFT JOIN messages ON messages.id = COALESCE(tasks.origin_message_id, parent_tasks.origin_message_id)
       LEFT JOIN telegram_chats ON telegram_chats.id = messages.chat_id
+      LEFT JOIN channel_messages
+        ON channel_messages.internal_message_id = messages.id
+       AND channel_messages.direction = 'inbound'
       WHERE tasks.id = $1
       LIMIT 1
       `,
       [taskId]
     );
-    const row = result.rows[0] as { chat_id: string | null; telegram_chat_id: string | number | null } | undefined;
-    if (!row?.chat_id || row.telegram_chat_id === null || row.telegram_chat_id === undefined) return null;
-    return {
-      chatId: row.chat_id,
-      telegramChatId: Number(row.telegram_chat_id)
-    };
+    const row = result.rows[0] as {
+      internal_chat_id: string | null;
+      origin_channel: string | null;
+      telegram_chat_id: string | number | null;
+      external_chat_id: string | null;
+      external_user_id: string | null;
+    } | undefined;
+    if (!row?.internal_chat_id) return null;
+    if (row.origin_channel === 'feishu' && row.external_chat_id) {
+      return {
+        channel: 'feishu' as const,
+        internalChatId: row.internal_chat_id,
+        externalChatId: row.external_chat_id,
+        externalUserId: row.external_user_id ?? undefined
+      };
+    }
+    if (row.telegram_chat_id !== null && row.telegram_chat_id !== undefined) {
+      return {
+        channel: 'telegram' as const,
+        internalChatId: row.internal_chat_id,
+        telegramChatId: Number(row.telegram_chat_id)
+      };
+    }
+    return null;
+  }
+
+  async getTaskTelegramTarget(taskId: string) {
+    const target = await this.getTaskNotificationTarget(taskId);
+    if (!target || target.channel !== 'telegram') return null;
+    return { chatId: target.internalChatId, telegramChatId: target.telegramChatId };
+  }
+
+  async listKnownChannelChats(channel: string, externalUserIds: string[] = []) {
+    const result = await this.pool.query(
+      `
+      SELECT DISTINCT ON (external_chat_id)
+        external_chat_id,
+        external_user_id,
+        created_at
+      FROM channel_messages
+      WHERE channel = $1
+        AND direction = 'inbound'
+        AND ($2::text[] = '{}'::text[] OR external_user_id = ANY($2::text[]))
+      ORDER BY external_chat_id, created_at DESC
+      `,
+      [channel, externalUserIds]
+    );
+    return result.rows as Array<{
+      external_chat_id: string;
+      external_user_id: string | null;
+      created_at: string;
+    }>;
   }
 
   async updateTaskStatus(taskId: string, status: TaskStatus, note?: string) {

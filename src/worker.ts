@@ -15,9 +15,11 @@ import { createModelProviderFromConfig } from './ai/modelProvider.js';
 import { logger } from './logger.js';
 import { BullMqTaskDispatcher, parseRedisConnection, taskQueueName, type TaskJobData } from './queue/taskQueue.js';
 import { TelegramClient } from './telegram/client.js';
+import { FeishuClient } from './feishu/client.js';
 import { buildTaskDetailCard } from './telegram/ux.js';
 import type { TaskRecord } from './types.js';
 import { workStrategyFromMetadata, type TaskPublicBrief, type WorkStrategy } from './work/workStrategy.js';
+import { completionPauseForAgentResult } from './work/taskCompletion.js';
 import { buildFeishuMirror } from './appos/feishu/ledger-mirror.js';
 import { LedgerSync } from './appos/feishu/ledger-sync.js';
 import { PaperclipBridge } from './integrations/paperclip/bridge.js';
@@ -31,6 +33,7 @@ const campaignEmailSender = new CampaignEmailSender(repos);
 const taskDispatcher = new BullMqTaskDispatcher(config.redis.url);
 const paperclipBridge = new PaperclipBridge(config, repos, taskDispatcher);
 const telegramClient = new TelegramClient(config.telegram.botToken);
+const feishuClient = new FeishuClient(config.feishu.cliPath);
 const modelProvider = createModelProviderFromConfig(config);
 const contentAgentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
 const feishuMirror = buildFeishuMirror({
@@ -52,6 +55,7 @@ const externalActionOptions = config.feishu.appId && config.feishu.appSecret && 
     }
   : {};
 let ledgerSyncRunning = false;
+let shuttingDown = false;
 let ledgerSyncTimer: NodeJS.Timeout | null = null;
 
 async function runAutomaticLedgerSync(trigger: 'startup' | 'interval' | 'task_completed') {
@@ -137,19 +141,22 @@ const worker = new Worker<TaskJobData>(
               ? await contentStepResultFor(task)
           : await operatingStepResultFor(task, job.data);
 
-      // Steps can end up waiting on the owner rather than finished.
+      // Steps can pause for approval or review rather than being falsely closed.
       if (typeof result === 'object' && result !== null && 'status' in result) {
-        await repos.updateTaskStatus(taskId, 'waiting_approval', result.text);
+        await repos.updateTaskStatus(taskId, result.status, result.text);
         await repos.audit({
           actorType: 'system',
-          action: 'worker_task_waiting_approval',
+          action: `worker_task_${result.status}`,
           entityType: 'task',
           entityId: taskId,
           metadata: { jobId: job.id }
         });
-        await notifyTaskLifecycle(taskId, [`等待审批：${task.title}`, summarizeResult(result.text)]);
+        await notifyTaskLifecycle(taskId, [
+          result.status === 'waiting_approval' ? `等待审批：${task.title}` : `需要复核：${task.title}`,
+          summarizeResult(result.text)
+        ]);
         await continueParentWorkflow(task);
-        return { ok: true, taskId, status: 'waiting_approval' };
+        return { ok: true, taskId, status: result.status };
       }
 
       const resultText: string = result;
@@ -220,26 +227,44 @@ worker.on('failed', (job, error) => {
   logger.error({ jobId: job?.id, error }, 'worker job failed');
 });
 
-async function shutdown() {
-  logger.info('Tele-OPC OS worker shutting down');
+async function shutdown(signal: 'SIGINT' | 'SIGTERM') {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, 'Tele-OPC OS worker shutting down');
   if (ledgerSyncTimer) clearInterval(ledgerSyncTimer);
-  await worker.close();
-  await pool.end();
+
+  // systemd stops the whole npm/tsx process tree. Do not wait for a long
+  // running job or Feishu ledger projection forever: BullMQ's forced close
+  // releases its blocking Redis connection, then the hard deadline guarantees
+  // that wrappers and any remaining handles cannot hold the service for 90s.
+  const deadlineMs = 12_000;
+  let exitCode = 0;
+  try {
+    await Promise.race([
+      (async () => {
+        await worker.close(true);
+        await taskDispatcher.close();
+        await pool.end();
+      })(),
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error(`worker shutdown exceeded ${deadlineMs}ms`)), deadlineMs);
+        timer.unref();
+      })
+    ]);
+  } catch (error) {
+    exitCode = 1;
+    logger.error(
+      { error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) },
+      'worker shutdown failed'
+    );
+  } finally {
+    logger.info({ signal, exitCode }, 'Tele-OPC OS worker stopped');
+    process.exit(exitCode);
+  }
 }
 
-process.on('SIGINT', () => {
-  shutdown().catch((error) => {
-    logger.error({ error }, 'worker shutdown failed');
-    process.exitCode = 1;
-  });
-});
-
-process.on('SIGTERM', () => {
-  shutdown().catch((error) => {
-    logger.error({ error }, 'worker shutdown failed');
-    process.exitCode = 1;
-  });
-});
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
 /**
  * Scans the live market for where money is moving and ranks the fastest paths
@@ -598,31 +623,13 @@ async function operatingStepResultFor(task: TaskRecord, data: TaskJobData) {
   });
 
   const text = result.content.trim();
-  if (!text) return foundationResultFor(data, task.owner_agent, task.planning_metadata);
-
   const usedTools = result.toolCalls.filter((call) => call.status !== 'failed');
   const toolTrace = usedTools.length
     ? `\n\n（调用了 ${usedTools.length} 次工具：${[...new Set(usedTools.map((call) => call.name))].join('、')}）`
     : '';
-  const body = [`${agent.displayName}：`, '', text].join('\n') + toolTrace;
-
-  // A step whose external action is still waiting for the owner is not done.
-  // Marking it done let later steps proceed as if the action had happened.
-  const blocked = result.toolCalls.filter((call) => call.status === 'blocked');
-  if (blocked.length) {
-    const approvalIds = blocked
-      .map((call) => (call.output as Record<string, unknown> | undefined)?.approvalId)
-      .filter((id): id is string => typeof id === 'string');
-    return {
-      status: 'waiting_approval' as const,
-      text: [
-        body,
-        '',
-        `等待审批：${blocked.map((call) => call.name).join('、')}`,
-        ...approvalIds.map((id) => `发送 \`/approve ${id}\` 批准，或 \`/reject ${id}\` 拒绝。`)
-      ].join('\n')
-    };
-  }
+  const body = text ? [`${agent.displayName}：`, '', text].join('\n') + toolTrace : '';
+  const paused = completionPauseForAgentResult({ content: text, toolCalls: result.toolCalls, body });
+  if (paused) return paused;
 
   return body;
 }
@@ -1249,7 +1256,7 @@ async function continueParentWorkflow(completedTask: TaskRecord) {
 }
 
 async function notifyTaskLifecycle(taskId: string, extraLines: string[]) {
-  const target = await repos.getTaskTelegramTarget(taskId);
+  const target = await repos.getTaskNotificationTarget(taskId);
   if (!target) return;
 
   const task = await repos.getTask(taskId);
@@ -1257,16 +1264,27 @@ async function notifyTaskLifecycle(taskId: string, extraLines: string[]) {
   const displayTask = task.parent_task_id ? await repos.getTask(task.parent_task_id) ?? task : task;
   const subtasks = await repos.listSubtasks(displayTask.id);
   const card = buildTaskDetailCard(displayTask, subtasks, config, extraLines.filter(Boolean));
+  const raw = {
+    source: 'worker_lifecycle_notification',
+    taskId,
+    displayTaskId: displayTask.id
+  };
 
-  await repos.createOutboundMessage({
-    chatId: target.chatId,
-    text: card.text,
-    raw: {
-      source: 'worker_lifecycle_notification',
-      taskId,
-      displayTaskId: displayTask.id
-    }
-  });
+  if (target.channel === 'feishu') {
+    const sent = await feishuClient.sendText({ chatId: target.externalChatId }, card.text);
+    await repos.createChannelOutboundMessage({
+      channel: 'feishu',
+      externalMessageId: sent.messageId,
+      externalChatId: target.externalChatId,
+      externalUserId: target.externalUserId,
+      chatId: target.internalChatId,
+      text: card.text,
+      raw
+    });
+    return;
+  }
+
+  await repos.createOutboundMessage({ chatId: target.internalChatId, text: card.text, raw });
   await telegramClient.sendMessage(target.telegramChatId, card.text, { replyMarkup: card.replyMarkup });
 }
 

@@ -15,3 +15,15 @@ export interface FeishuSendResult {
   chatId?: string;
   createTime?: string;
 }
+
+
+export interface FeishuListedMessage {
+  chatId: string;
+  content: string;
+  createTime: string;
+  messageId: string;
+  messageType: string;
+  replyTo?: string;
+  senderId: string;
+  senderType: string;
+}

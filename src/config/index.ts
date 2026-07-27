@@ -54,6 +54,8 @@ const envSchema = z.object({
   FEISHU_OWNER_OPEN_IDS: z.string().default(''),
   FEISHU_CLI_PATH: z.string().default('lark-cli'),
   FEISHU_APPROVAL_POLL_INTERVAL_MS: z.coerce.number().int().min(3000).max(300000).default(10000),
+  FEISHU_MESSAGE_POLL_INTERVAL_MS: z.coerce.number().int().min(5000).max(300000).default(15000),
+  FEISHU_POLL_CHAT_IDS: z.string().default(''),
   FEISHU_ATTACHMENT_MAX_BYTES: z.coerce.number().int().min(1048576).max(536870912).default(52428800),
   PAPERCLIP_ENABLED: envBool(false),
   PAPERCLIP_API_URL: z.string().default('http://127.0.0.1:3101'),
@@ -84,6 +86,10 @@ export function loadConfig() {
     .map((id) => id.trim())
     .filter(Boolean);
 
+  const feishuPollChatIds = env.FEISHU_POLL_CHAT_IDS.split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+
   return {
     app: {
       env: env.APP_ENV,
@@ -110,6 +116,8 @@ export function loadConfig() {
       ownerOpenIds: feishuOwnerOpenIds,
       cliPath: env.FEISHU_CLI_PATH,
       approvalPollIntervalMs: env.FEISHU_APPROVAL_POLL_INTERVAL_MS,
+      messagePollIntervalMs: env.FEISHU_MESSAGE_POLL_INTERVAL_MS,
+      pollChatIds: feishuPollChatIds,
       attachmentMaxBytes: env.FEISHU_ATTACHMENT_MAX_BYTES
     },
     paperclip: {

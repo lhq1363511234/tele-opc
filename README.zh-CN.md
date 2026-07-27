@@ -909,3 +909,7 @@ Tele-OPC 可作为 Paperclip 的执行面：Paperclip 负责公司治理与 Issu
 ## 架构与故障定位
 
 项目的 Phase 实现状态、模块边界和 Bug 路由以 [架构与维护入口](./docs/architecture/README.zh-CN.md) 为准。以后提交问题时建议使用模块编号（例如 `M09 Finance`、`M15 Feishu Channel`）。
+
+## 微信 iLink 接入评估
+
+微信个人号官方 iLink / ClawBot 方向的代码审查、风险和 Tele-OPC M21 模块方案见 [`docs/integrations/WECHAT_ILINK_ASSESSMENT.zh-CN.md`](docs/integrations/WECHAT_ILINK_ASSESSMENT.zh-CN.md)。

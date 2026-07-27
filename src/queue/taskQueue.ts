@@ -42,6 +42,10 @@ export class BullMqTaskDispatcher implements TaskDispatcher {
     });
     return { jobId: job.id };
   }
+
+  async close() {
+    await this.queue.close();
+  }
 }
 
 export class NoopTaskDispatcher implements TaskDispatcher {
