@@ -5,6 +5,7 @@ public sealed class MainForm : Form
     readonly NotifyIcon tray = new() { Icon = SystemIcons.Application, Text = "Tele-OPC 微信桥接", Visible = true };
     readonly BridgeSettings settings = BridgeSettings.Load();
     readonly WechatLocalReader localReader = new();
+    readonly WechatScreenReader screenReader = new();
     readonly SafeWechatSender safeSender = new();
     readonly TextBox server = new() { Width = 360 };
     readonly TextBox token = new() { Width = 360, UseSystemPasswordChar = true };
@@ -12,7 +13,7 @@ public sealed class MainForm : Form
     readonly CheckBox groups = new() { Text = "处理群聊" };
     readonly NumericUpDown interval = new() { Minimum = 2, Maximum = 60 };
     readonly Button toggle = new() { Text = "启动", Width = 100 };
-    readonly Button initialize = new() { Text = "初始化消息读取", Width = 140 };
+    readonly Button initialize = new() { Text = "尝试数据库读取（可选）", Width = 170 };
     readonly Button diagnose = new() { Text = "导出微信诊断", Width = 130 };
     readonly Label mode = new() { AutoSize = true };
     readonly TextBox log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
@@ -59,8 +60,13 @@ public sealed class MainForm : Form
         menu.Items.Add("暂停", null, (_, _) => cts?.Cancel());
         menu.Items.Add("退出", null, (_, _) => Close());
         tray.ContextMenuStrip = menu;
+        Shown += async (_, _) =>
+        {
+            if (cts is null && !string.IsNullOrWhiteSpace(token.Text)) await Toggle();
+        };
+        screenReader.Log = Write;
         RefreshModeLabel();
-        Write(localReader.IsInitialized ? "本地消息读取已初始化。" : "请先点击“初始化消息读取”，完成一次管理员初始化。");
+        Write(localReader.IsInitialized ? "数据库读取可用；将优先使用数据库。" : "屏幕识别模式已就绪；首次启动只建立基线，不处理已有未读消息。");
     }
 
     async Task Toggle()
@@ -73,16 +79,6 @@ public sealed class MainForm : Form
             Write("桥接已暂停。");
             return;
         }
-        if (!localReader.IsBundled)
-        {
-            Write("当前安装包缺少本地消息读取组件，请重新下载完整安装包。");
-            return;
-        }
-        if (!localReader.IsInitialized)
-        {
-            Write("请先点击“初始化消息读取”。初始化完成后再启动桥接。");
-            return;
-        }
         settings.ServerUrl = server.Text.Trim();
         settings.DeviceToken = token.Text.Trim();
         settings.AutoReply = auto.Checked;
@@ -91,7 +87,7 @@ public sealed class MainForm : Form
         settings.Save();
         cts = new CancellationTokenSource();
         toggle.Text = "暂停";
-        Write($"桥接已启动：本地数据库读取；发送前本地 OCR 校验；自动回复={(settings.AutoReply ? "开启" : "关闭")}。");
+        Write($"桥接已启动：{(localReader.IsInitialized ? "数据库读取" : screenReader.ModeDescription)}；发送前 OCR 校验；自动回复={(settings.AutoReply ? "开启" : "关闭")}。");
         try { await Task.Run(() => Loop(cts.Token)); }
         catch (OperationCanceledException) { }
         finally
@@ -109,7 +105,9 @@ public sealed class MainForm : Form
             string? heartbeatError = null;
             try
             {
-                var messages = await localReader.ReadNewAsync(ct);
+                var messages = localReader.IsInitialized
+                    ? await localReader.ReadNewAsync(ct)
+                    : await screenReader.ReadNewAsync(settings.Groups, ct);
                 foreach (var msg in messages)
                 {
                     if (msg.isGroup && !settings.Groups) continue;
@@ -152,7 +150,7 @@ public sealed class MainForm : Form
         try
         {
             localReader.StartInitialization();
-            Write("已打开管理员初始化窗口。请保持微信登录，等待出现“初始化完成”，然后关闭黑色窗口。");
+            Write("已打开可选的数据库读取初始化。当前微信版本若提取不到密钥，可直接关闭窗口，屏幕识别仍可正常使用。");
         }
         catch (Exception e) { Write("初始化启动失败：" + e.Message); }
     }
@@ -172,15 +170,23 @@ public sealed class MainForm : Form
     void RefreshModeLabel()
     {
         mode.Text = localReader.IsInitialized
-            ? "模式：本地数据库读取 + Windows 本地 OCR（已初始化）"
-            : "模式：等待初始化本地消息读取";
+            ? "模式：数据库读取 + 发送前 OCR 校验"
+            : "模式：微信 4.1 后台截图 + Windows 本地 OCR";
     }
     void Restore() { Show(); WindowState = FormWindowState.Normal; Activate(); RefreshModeLabel(); }
     static string Preview(string text) => text.Length <= 40 ? text : text[..40] + "…";
     void Write(string value)
     {
         if (InvokeRequired) { BeginInvoke(() => Write(value)); return; }
-        log.AppendText($"[{DateTime.Now:HH:mm:ss}] {value}\r\n");
+        var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {value}";
+        log.AppendText(line + "\r\n");
+        try
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TeleOpc", "WechatBridge");
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "bridge.log"), line + Environment.NewLine);
+        }
+        catch { }
         RefreshModeLabel();
     }
 }

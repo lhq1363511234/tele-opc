@@ -1,8 +1,8 @@
 using System.Net.Http.Headers; using System.Net.Http.Json; using System.Text.Json;
 namespace TeleOpc.WechatBridge;
 public sealed class BridgeApiClient {
- readonly HttpClient http=new(){Timeout=TimeSpan.FromSeconds(90)}; readonly BridgeSettings settings;
- public BridgeApiClient(BridgeSettings s){settings=s;http.BaseAddress=new Uri(s.ServerUrl.TrimEnd('/')+"/");http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",s.DeviceToken);}
+ readonly HttpClient http; readonly BridgeSettings settings;
+ public BridgeApiClient(BridgeSettings s){settings=s;http=new HttpClient(new HttpClientHandler{UseProxy=false}){Timeout=TimeSpan.FromSeconds(90),BaseAddress=new Uri(s.ServerUrl.TrimEnd('/')+"/")};http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",s.DeviceToken);}
  public async Task UploadAsync(WechatInbound m,CancellationToken ct){var r=await http.PostAsJsonAsync("api/bridge/v1/messages",m,ct);r.EnsureSuccessStatusCode();}
  public async Task<List<OutboxItem>> ClaimAsync(CancellationToken ct){var x=await http.GetFromJsonAsync<OutboxResponse>("api/bridge/v1/outbox?limit=10",ct);return x?.items??[];}
  public async Task AckAsync(OutboxItem i,bool sent,string? error,CancellationToken ct){var r=await http.PostAsJsonAsync($"api/bridge/v1/outbox/{i.id}/ack",new{leaseToken=i.lease_token,status=sent?"sent":"failed",error},ct);r.EnsureSuccessStatusCode();}
