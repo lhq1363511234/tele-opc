@@ -37,7 +37,7 @@ public sealed class WechatDriver
         try
         {
             var messages = await screenReader.ReadNewAsync(allowGroups, ct);
-            if (lastAvailabilityMessage is not null)
+            if (lastAvailabilityMessage is not null && WechatWindow.Find() != IntPtr.Zero)
             {
                 Log?.Invoke("微信主界面已恢复，消息监听继续运行。");
                 lastAvailabilityMessage = null;

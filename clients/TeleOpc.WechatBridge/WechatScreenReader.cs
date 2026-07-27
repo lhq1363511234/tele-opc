@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using FlaUI.Core.Definitions;
+using FlaUI.UIA3;
 
 namespace TeleOpc.WechatBridge;
 
@@ -17,6 +19,7 @@ public sealed class WechatScreenReader
     ScreenReaderState state;
     bool notificationBaselineReady;
     readonly Dictionary<string, DateTimeOffset> seenNotifications = new(StringComparer.Ordinal);
+    readonly Dictionary<string, DateTimeOffset> failedCandidates = new(StringComparer.Ordinal);
 
     public WechatScreenReader()
     {
@@ -30,7 +33,15 @@ public sealed class WechatScreenReader
     {
         ct.ThrowIfCancellationRequested();
         var hwnd = WechatWindow.Find();
-        if (hwnd == IntPtr.Zero) throw new WechatWindowUnavailableException("微信正在托盘中；打开一次微信主界面后会自动继续监听。");
+        if (hwnd == IntPtr.Zero)
+        {
+            if (WechatWindow.TryEnterWechat())
+            {
+                Log?.Invoke("检测到微信登录确认页，已自动点击“进入微信”；等待主界面加载。");
+                return Array.Empty<WechatInbound>();
+            }
+            throw new WechatWindowUnavailableException("微信正在托盘中；打开一次微信主界面后会自动继续监听。");
+        }
 
         var notificationMessages = await ReadNotificationsAsync(hwnd, allowGroups, ct);
         using var capture = WechatWindow.Capture(hwnd);
@@ -47,14 +58,20 @@ public sealed class WechatScreenReader
         Log?.Invoke($"会话扫描 {capture.Width}×{capture.Height}：" + string.Join("；", sessions.Select(x => $"{x.Name}[未读={x.HasUnread},红={x.RedPixels}]")));
         if (!state.Initialized)
         {
-            state = new ScreenReaderState(true, listHash, sessions.ToDictionary(x => x.Key, x => x.RowHash, StringComparer.Ordinal));
+            state = new ScreenReaderState(true, listHash, BuildSessionHashes(sessions));
             SaveState();
             Log?.Invoke($"屏幕读取基线已建立：识别到 {sessions.Count} 个可见会话，未处理启动前旧消息。");
             return notificationMessages;
         }
 
+        var now = DateTimeOffset.UtcNow;
+        foreach (var stale in failedCandidates.Where(x => now - x.Value > TimeSpan.FromMinutes(2)).Select(x => x.Key).ToList())
+            failedCandidates.Remove(stale);
         var candidates = sessions
             .Where(x => x.HasUnread && (!state.SessionHashes.TryGetValue(x.Key, out var oldHash) || !string.Equals(oldHash, x.RowHash, StringComparison.Ordinal)))
+            .Where(x => !failedCandidates.TryGetValue(x.Key, out var failedAt) || now - failedAt > TimeSpan.FromSeconds(45))
+            .GroupBy(x => x.Key, StringComparer.Ordinal)
+            .Select(x => x.First())
             .ToList();
         if (candidates.Count > 0) Log?.Invoke($"会话列表发现 {candidates.Count} 个新未读变化，开始校验。");
         var messages = new List<WechatInbound>(notificationMessages);
@@ -74,7 +91,13 @@ public sealed class WechatScreenReader
                 finally { TryDelete(conversationPath); }
 
                 var parsed = ParseConversation(conversationOcr, ScreenLayout.From(conversation.Width, conversation.Height), IsReliableSessionName(session.Name) ? session.Name : null, session.Key, session.RowHash);
-                if (parsed is null) { Log?.Invoke($"会话“{session.Name}”标题或消息 OCR 校验失败，已跳过。"); continue; }
+                if (parsed is null)
+                {
+                    failedCandidates[session.Key] = DateTimeOffset.UtcNow;
+                    Log?.Invoke($"会话“{session.Name}”标题或消息 OCR 校验失败，45 秒内不再重复处理。");
+                    continue;
+                }
+                failedCandidates.Remove(session.Key);
                 if (parsed.IsGroup && !allowGroups) { Log?.Invoke($"群聊“{parsed.ConversationName}”已按设置跳过。"); continue; }
                 messages.Add(new WechatInbound(
                     parsed.MessageId,
@@ -91,7 +114,7 @@ public sealed class WechatScreenReader
             if (priorForeground != IntPtr.Zero && priorForeground != hwnd) WechatWindow.TryFocus(priorForeground);
         }
 
-        state = new ScreenReaderState(true, listHash, sessions.ToDictionary(x => x.Key, x => x.RowHash, StringComparer.Ordinal));
+        state = new ScreenReaderState(true, listHash, BuildSessionHashes(sessions));
         SaveState();
         return messages;
     }
@@ -261,6 +284,10 @@ public sealed class WechatScreenReader
         return result;
     }
 
+    static Dictionary<string, string> BuildSessionHashes(IEnumerable<ScreenSession> sessions) =>
+        sessions.GroupBy(x => x.Key, StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Last().RowHash, StringComparer.Ordinal);
+
     static bool IsReliableSessionName(string value)
     {
         var compact = value.Replace(" ", string.Empty);
@@ -411,24 +438,92 @@ public static class TextIdentity
 
 public static class WechatWindow
 {
+    static readonly object RecoveryLock = new();
+    static DateTimeOffset lastLoginAttempt = DateTimeOffset.MinValue;
+
     public static IntPtr Find()
     {
         IntPtr found = IntPtr.Zero;
+        var largestArea = 0;
         EnumWindows((hwnd, _) =>
         {
-            if (!IsWindowVisible(hwnd)) return true;
-            var cls = GetText(hwnd, GetClassName);
-            if (!cls.Equals("Qt51514QWindowIcon", StringComparison.OrdinalIgnoreCase)) return true;
-            var title = GetText(hwnd, GetWindowText);
-            if (title is "微信" or "Weixin" or "WeChat") { found = hwnd; return false; }
+            if (!IsWechatWindow(hwnd, out var rect) || rect.Width < 600 || rect.Height < 400) return true;
+            var area = rect.Width * rect.Height;
+            if (area > largestArea) { largestArea = area; found = hwnd; }
             return true;
         }, IntPtr.Zero);
         return found;
     }
 
+    public static bool TryEnterWechat()
+    {
+        lock (RecoveryLock)
+        {
+            if (DateTimeOffset.UtcNow - lastLoginAttempt < TimeSpan.FromSeconds(30)) return false;
+            IntPtr login = IntPtr.Zero;
+            RECT loginRect = default;
+            EnumWindows((hwnd, _) =>
+            {
+                if (!IsWechatWindow(hwnd, out var rect)) return true;
+                if (rect.Width is >= 220 and <= 500 && rect.Height is >= 280 and <= 700)
+                {
+                    login = hwnd; loginRect = rect; return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            if (login == IntPtr.Zero) return false;
+
+            lastLoginAttempt = DateTimeOffset.UtcNow;
+            try
+            {
+                using var automation = new UIA3Automation();
+                var root = automation.FromHandle(login);
+                var button = root.FindAllDescendants(cf => cf.ByControlType(ControlType.Button))
+                    .FirstOrDefault(x => x.ClassName.Equals("mmui::XOutlineButton", StringComparison.OrdinalIgnoreCase));
+                if (button is not null)
+                {
+                    button.Focus();
+                    button.Click();
+                    return true;
+                }
+            }
+            catch { }
+
+            using var image = CaptureRaw(login, loginRect);
+            int minX = image.Width, minY = image.Height, maxX = -1, maxY = -1, greenPixels = 0;
+            for (var y = image.Height / 2; y < image.Height; y += 2)
+            for (var x = 0; x < image.Width; x += 2)
+            {
+                var c = image.GetPixel(x, y);
+                if (c.G < 145 || c.R > 100 || c.B > 165 || c.G < c.R + 65 || c.G < c.B + 35) continue;
+                greenPixels++;
+                minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x); maxY = Math.Max(maxY, y);
+            }
+            if (greenPixels < 80 || maxX <= minX || maxY <= minY || minY < image.Height * .68) return false;
+            FocusAndClick(login, (minX + maxX) / 2, (minY + maxY) / 2);
+            return true;
+        }
+    }
+
+    static bool IsWechatWindow(IntPtr hwnd, out RECT rect)
+    {
+        rect = default;
+        if (!IsWindowVisible(hwnd) || !GetWindowRect(hwnd, out rect)) return false;
+        var cls = GetText(hwnd, GetClassName);
+        if (!cls.Equals("Qt51514QWindowIcon", StringComparison.OrdinalIgnoreCase)) return false;
+        var title = GetText(hwnd, GetWindowText);
+        return title is "微信" or "Weixin" or "WeChat";
+    }
+
     public static Bitmap Capture(IntPtr hwnd)
     {
         if (!GetWindowRect(hwnd, out var rect) || rect.Width < 600 || rect.Height < 400) throw new WechatWindowUnavailableException("微信主界面当前不可读取；打开一次微信主界面后会自动继续监听。");
+        return CaptureRaw(hwnd, rect);
+    }
+
+    static Bitmap CaptureRaw(IntPtr hwnd, RECT rect)
+    {
         var bitmap = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
         var hdc = graphics.GetHdc();
