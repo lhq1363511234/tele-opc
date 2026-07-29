@@ -315,6 +315,18 @@ async function approvedActionResultFor(task: TaskRecord, data: TaskJobData) {
   if (!approval) return `找不到审批 ${data.approvalId}，没有执行任何动作。`;
 
   const payload = (approval.payload ?? {}) as Record<string, unknown>;
+  const hasExecutableToolPayload = typeof payload.toolName === 'string' || isRecord(payload.toolInput);
+  if (!hasExecutableToolPayload) {
+    await repos.audit({
+      actorType: 'system',
+      action: 'approval_gate_released',
+      entityType: 'approval',
+      entityId: approval.id,
+      metadata: { taskId: task.id, actionType: approval.action_type }
+    });
+    return await operatingStepResultFor(task, { taskId: task.id, source: 'retry' });
+  }
+
   const toolName = typeof payload.toolName === 'string' ? payload.toolName : approval.action_type;
   const outcome = await runApprovedAction(toolName, payload, externalActionOptions);
 
