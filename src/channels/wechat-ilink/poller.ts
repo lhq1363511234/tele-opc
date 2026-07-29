@@ -103,7 +103,7 @@ export class WechatIlinkPoller {
     });
     if (inbound.duplicate) return;
 
-    if (await this.handleApprovalDecisionMessage(account, peerId, text, owner.chatId)) {
+    if (await this.handleApprovalDecisionMessage(account, peerId, text, owner.chatId, owner.userId)) {
       await this.store.setAccountHealth(account.id, { messageReceived: true, error: null });
       return;
     }
@@ -180,7 +180,8 @@ export class WechatIlinkPoller {
     account: WechatAccountRecord,
     peerId: string,
     text: string,
-    chatId: string
+    chatId: string,
+    ownerUserId: string
   ) {
     const parsed = parseApprovalDecision(text);
     if (!parsed) return false;
@@ -218,7 +219,7 @@ export class WechatIlinkPoller {
       taskDispatcher: this.taskDispatcher,
       id: approvalId,
       status: parsed.status,
-      userId: `wechat:${peerId}`,
+      userId: ownerUserId,
       actorType: 'wechat'
     });
     await this.sendControlReply(account, peerId, chatId, result);
