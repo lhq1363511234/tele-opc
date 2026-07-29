@@ -1667,6 +1667,140 @@ describe('ChiefOfStaff', () => {
     expect(naturalReply).toContain('本月净现金流');
   });
 
+  it('handles finance status lookups deterministically instead of creating generic tasks', async () => {
+    const repos = new FakeRepos();
+    await repos.createFinanceEntry({
+      kind: 'transaction',
+      direction: 'income',
+      amount: 100,
+      currency: 'CNY',
+      description: '测试收入'
+    });
+    const dispatcher = new RecordingDispatcher();
+    const modelProvider = new FakeModelProvider([
+      {
+        content: '{"route":"task","confidence":0.99,"targetWorkflow":"unknown","reason":"would be wrong"}',
+        toolCalls: [],
+        raw: { classifier: 'should_not_run' }
+      }
+    ]);
+    const agentRunner = new AgentRunner(modelProvider, repos);
+    const brain = new ChiefOfStaff(
+      repos,
+      dispatcher,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agentRunner
+    );
+
+    const reply = await brain.handleText('去查一下财务状况', context);
+
+    expect(reply).toContain('财务看板');
+    expect(reply).toContain('本月收入：¥100');
+    expect(repos.tasks).toHaveLength(0);
+    expect(repos.agentRuns).toHaveLength(0);
+    expect(dispatcher.jobs).toHaveLength(0);
+  });
+
+  it('sends the last referenced task result instead of restarting unrelated tasks', async () => {
+    const repos = new FakeRepos();
+    const finished = await repos.createTask({
+      title: '去查一下财务状况',
+      status: 'done',
+      ownerAgent: 'chief_of_staff'
+    });
+    finished.result = '真实财务结果：本月净现金流 ¥100.01';
+    await repos.createTask({
+      title: '个人微信回复：《 一 谢 析 汝',
+      status: 'planned',
+      ownerAgent: 'chief_of_staff'
+    });
+    repos.chatMessages.push(
+      {
+        id: 'msg_old_1',
+        chat_id: context.chatId,
+        direction: 'outbound',
+        text: `已创建任务：${finished.id}\n状态：queued`,
+        created_at: '2026-06-11T00:00:00.000Z'
+      },
+      {
+        id: 'msg_old_2',
+        chat_id: context.chatId,
+        direction: 'outbound',
+        text: `任务 ${finished.id}\n状态：已完成`,
+        created_at: '2026-06-11T00:01:00.000Z'
+      }
+    );
+    const dispatcher = new RecordingDispatcher();
+    const modelProvider = new FakeModelProvider([
+      {
+        content: '{"route":"continuation","confidence":0.99,"reason":"would restart unrelated task"}',
+        toolCalls: [],
+        raw: { classifier: 'should_not_run' }
+      }
+    ]);
+    const agentRunner = new AgentRunner(modelProvider, repos);
+    const brain = new ChiefOfStaff(
+      repos,
+      dispatcher,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agentRunner
+    );
+
+    const reply = await brain.handleText('查完了，你发给我呀', context);
+
+    expect(reply).toContain(`任务结果：${finished.id}`);
+    expect(reply).toContain('真实财务结果');
+    expect(dispatcher.jobs).toHaveLength(0);
+    expect(repos.agentRuns).toHaveLength(0);
+  });
+
+  it('uses the recent finance lookup context before unrelated task ids when sending results', async () => {
+    const repos = new FakeRepos();
+    await repos.createFinanceEntry({
+      kind: 'transaction',
+      direction: 'income',
+      amount: 100.01,
+      currency: 'CNY',
+      description: '收款码到账'
+    });
+    const unrelated = await repos.createTask({
+      title: '个人微信回复：《 一 谢 析 汝',
+      status: 'planned',
+      ownerAgent: 'chief_of_staff'
+    });
+    repos.chatMessages.push(
+      {
+        id: 'msg_old_finance',
+        chat_id: context.chatId,
+        direction: 'inbound',
+        text: '去查一下财务状况',
+        created_at: '2026-06-11T00:00:00.000Z'
+      },
+      {
+        id: 'msg_old_unrelated',
+        chat_id: context.chatId,
+        direction: 'outbound',
+        text: `已找到最近可继续的任务：${unrelated.id}`,
+        created_at: '2026-06-11T00:01:00.000Z'
+      }
+    );
+    const dispatcher = new RecordingDispatcher();
+    const brain = new ChiefOfStaff(repos, dispatcher);
+
+    const reply = await brain.handleText('查完了，你发给我呀', context);
+
+    expect(reply).toContain('财务看板');
+    expect(reply).toContain('本月收入：¥100.01');
+    expect(reply).not.toContain(unrelated.title);
+    expect(dispatcher.jobs).toHaveLength(0);
+  });
+
   it('records calendar events and creates meeting prep notes', async () => {
     const repos = new FakeRepos();
     const dispatcher = new RecordingDispatcher();

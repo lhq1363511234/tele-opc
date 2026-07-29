@@ -1,6 +1,6 @@
 import { getAgentDefinition, isKnownAgent, listAgentDefinitions } from '../agents/registry.js';
 import { selectSkillsForText } from '../skills/registry.js';
-import type { MemoryType, TaskStatus } from '../types.js';
+import type { FinanceDashboard, MemoryType, TaskStatus } from '../types.js';
 import type { AgentTool } from './agentRunner.js';
 
 export interface AgentToolRepositories {
@@ -55,6 +55,7 @@ export interface AgentToolRepositories {
     payload: Record<string, unknown>;
     created_at: string;
   }>>;
+  getFinanceDashboard?(): Promise<FinanceDashboard>;
 }
 
 const SPECIALIST_HANDOFF_AGENT_IDS = new Set([
@@ -353,6 +354,28 @@ export function buildCoreAgentTools(repos: AgentToolRepositories, options: { cha
       }
     },
     {
+      name: 'get_finance_dashboard',
+      description: 'Read the real local Tele-OPC finance dashboard: monthly income, expenses, net cashflow, open invoices, upcoming subscriptions, recent transactions, risk alerts, and suggested actions. Use this before answering finance/cashflow/payment status questions; do not claim finance is not connected until this tool fails.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false
+      },
+      async execute() {
+        if (!repos.getFinanceDashboard) {
+          return {
+            ok: false,
+            error: 'finance_dashboard_unavailable'
+          };
+        }
+        const dashboard = await repos.getFinanceDashboard();
+        return {
+          ok: true,
+          dashboard: compactFinanceDashboard(dashboard)
+        };
+      }
+    },
+    {
       name: 'list_pending_approvals',
       description: 'Read pending approval gates. Finance, payment, paid data, ads, non-email external writes, production deploys, and destructive actions stay gated.',
       parameters: {
@@ -384,6 +407,49 @@ export function buildCoreAgentTools(repos: AgentToolRepositories, options: { cha
       }
     }
   ];
+}
+
+function compactFinanceDashboard(dashboard: FinanceDashboard) {
+  return {
+    currency: dashboard.currency,
+    monthlyIncome: dashboard.monthlyIncome,
+    monthlyExpenses: dashboard.monthlyExpenses,
+    netCashflow: dashboard.netCashflow,
+    riskAlerts: dashboard.riskAlerts.slice(0, 8),
+    suggestedActions: dashboard.suggestedActions.slice(0, 8),
+    openInvoices: dashboard.openInvoices.slice(0, 8).map((invoice) => ({
+      id: invoice.id,
+      customerName: invoice.customer_name,
+      amount: Number(invoice.amount),
+      currency: invoice.currency,
+      status: invoice.status,
+      dueAt: invoice.due_at,
+      paidAt: invoice.paid_at,
+      notes: invoice.notes?.slice(0, 300) ?? null
+    })),
+    upcomingSubscriptions: dashboard.upcomingSubscriptions.slice(0, 8).map((subscription) => ({
+      id: subscription.id,
+      vendorName: subscription.vendor_name ?? subscription.name,
+      name: subscription.name,
+      amount: Number(subscription.amount),
+      currency: subscription.currency,
+      interval: subscription.billing_interval,
+      nextBillingAt: subscription.next_billing_at,
+      category: subscription.category
+    })),
+    recentTransactions: dashboard.recentTransactions.slice(0, 10).map((transaction) => ({
+      id: transaction.id,
+      direction: transaction.direction,
+      amount: Number(transaction.amount),
+      currency: transaction.currency,
+      occurredAt: transaction.occurred_at,
+      category: transaction.category,
+      counterparty: transaction.counterparty,
+      invoiceId: transaction.invoice_id,
+      description: transaction.description?.slice(0, 300) ?? null,
+      source: transaction.source
+    }))
+  };
 }
 
 function uniqueStrings(values: string[]) {

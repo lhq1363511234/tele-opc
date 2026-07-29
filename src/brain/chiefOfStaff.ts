@@ -289,6 +289,23 @@ export class ChiefOfStaff {
       return this.createContentWorkflow(intake.normalizedText, context);
     }
 
+    // Deterministic read-only dashboard intents must bypass the generic AI
+    // task classifier. "去查一下财务状况" is a data lookup, not a new work item;
+    // routing it through the operating executor made the Agent invent "没接入"
+    // even though the local finance ledger already had data.
+    if (isFinanceDashboardRequest(intake.normalizedText)) {
+      return this.financeDashboard();
+    }
+
+    // Follow-up phrases like "查完了，你发给我呀" are not permission to
+    // restart some unrelated planned task. Treat them as a request to deliver
+    // the last referenced result in this chat, or fall back to the matching
+    // dashboard/query context.
+    if (isResultDeliveryRequest(intake.normalizedText)) {
+      const delivery = await this.handleResultDeliveryRequest(intake.normalizedText, context);
+      if (delivery) return delivery;
+    }
+
     const chiefIntent = await this.classifyChiefIntent(intake, context);
 
     if (chiefIntent?.route === 'question') {
@@ -1003,6 +1020,66 @@ export class ChiefOfStaff {
       '',
       this.renderAIAgentResult(aiResult)
     ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n');
+  }
+
+  private async handleResultDeliveryRequest(text: string, context: BrainContext) {
+    const recent = await this.repos.listRecentMessagesForChat(context.chatId, 30);
+    const priorMessages = recent.filter((message) => message.id !== context.originMessageId && Boolean(message.text));
+
+    const explicitTask = await this.resolveTaskForResultDelivery([text]);
+    if (explicitTask) {
+      return this.renderTaskResultDelivery(explicitTask);
+    }
+
+    const lastFinanceLookup = priorMessages.find((message) =>
+      message.direction === 'inbound' && isFinanceDashboardRequest(message.text ?? '')
+    );
+    if (lastFinanceLookup) {
+      return this.financeDashboard();
+    }
+
+    const task = await this.resolveTaskForResultDelivery(priorMessages.map((message) => message.text ?? ''));
+    if (task) {
+      return this.renderTaskResultDelivery(task);
+    }
+
+    return [
+      '我理解你是要我把刚才查到的结果发出来，但这轮对话里没有解析到明确的任务结果。',
+      '',
+      '你可以发 `/tasks` 查看最近任务，或发 `/task tsk_xxx` 指定要看的结果。'
+    ].join('\n');
+  }
+
+  private async resolveTaskForResultDelivery(texts: string[]) {
+    const taskIds = extractTaskIds(texts);
+    for (const taskId of taskIds) {
+      const task = await this.repos.getTask(taskId);
+      if (task) return task;
+    }
+    return null;
+  }
+
+  private renderTaskResultDelivery(task: TaskRecord) {
+    const lines = [
+      `任务结果：${task.id}`,
+      `标题：${task.title}`,
+      `状态：${task.status}`,
+      `负责人：${task.owner_agent}`,
+      ''
+    ];
+
+    if (task.result?.trim()) {
+      lines.push('结果：', truncateChars(task.result.trim(), 3500));
+    } else if (task.status === 'done') {
+      lines.push('任务已完成，但没有写入结果正文。可以发 `/trace <agent_run_id>` 看执行轨迹，或让我重新跑一次总结。');
+    } else {
+      lines.push(
+        `这个任务还没有完成（当前：${task.status}），我不会擅自重启其他任务。`,
+        `需要推进它请发：/retry ${task.id}`
+      );
+    }
+
+    return lines.join('\n');
   }
 
   private async handleChiefQuestion(
@@ -3827,6 +3904,10 @@ export class ChiefOfStaff {
       task.description ? `描述：${task.description}` : ''
     ].filter(Boolean);
 
+    if (task.result?.trim()) {
+      lines.push('', '结果：', truncateChars(task.result.trim(), 3000));
+    }
+
     if (subtasks.length) {
       lines.push('', '子任务：');
       lines.push(
@@ -4523,6 +4604,19 @@ function isProgressNudge(text: string) {
   if (normalized.length > 80) return false;
   if (/^(推进|推进吧|推进呀|继续|继续吧|执行吧|启动吧|开始吧|开始执行吧)$/i.test(normalized)) return true;
   return /(没回复|没有回复|不回复|卡住|还在跑|还在执行|什么状态|怎么样了|进度)/i.test(normalized);
+}
+
+function isResultDeliveryRequest(text: string) {
+  const normalized = text.trim();
+  if (!normalized || normalized.length > 120) return false;
+  if (/(发|发送|转发|提交|回复).{0,12}(客户|联系人|对方|他们|外部|邮箱|邮件|微信|飞书群)/i.test(normalized)) {
+    return false;
+  }
+  return /(?:查完|查好了|查到|跑完|做完|完成了).{0,16}(发给我|给我|告诉我|给我看|结果|报告|摘要)|(?:结果|报告|摘要|查到的|刚才查的|刚刚查的).{0,16}(发给我|给我看|告诉我|给我)|(?:把|将)?(?:刚才|刚刚|上个|上一条|那个|这个)?.{0,8}(结果|报告|摘要).{0,16}(发给我|给我看|告诉我|给我)/i.test(normalized);
+}
+
+function extractTaskIds(texts: string[]) {
+  return [...new Set(texts.flatMap((text) => [...text.matchAll(/tsk_[a-z0-9-]+/gi)].map((match) => match[0])))];
 }
 
 function isNudgeOnlyTask(task: TaskRecord) {

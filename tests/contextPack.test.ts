@@ -95,8 +95,30 @@ describe('context pack', () => {
         async getFinanceDashboard() {
           return {
             riskAlerts: ['有 1 张发票已逾期'],
+            suggestedActions: ['先跟进逾期发票'],
+            monthlyIncome: 8000,
+            monthlyExpenses: 9200,
             netCashflow: -1200,
-            currency: 'CNY'
+            currency: 'CNY',
+            openInvoices: [{
+              id: 'inv_1',
+              customer_name: 'Beta',
+              amount: '5000',
+              currency: 'CNY',
+              status: 'overdue',
+              due_at: '2026-06-01'
+            }],
+            upcomingSubscriptions: [],
+            recentTransactions: [{
+              id: 'txn_1',
+              direction: 'income',
+              amount: '8000',
+              currency: 'CNY',
+              category: 'revenue',
+              counterparty: 'Acme',
+              occurred_at: '2026-07-01T00:00:00.000Z',
+              description: '企业版订阅'
+            }]
           };
         }
       },
@@ -138,6 +160,13 @@ describe('context pack', () => {
     expect(unrelatedRuntime.relevantCustomers).toEqual([]);
     expect(unrelatedRuntime.relevantFinanceItems).toEqual([]);
     expect(unrelatedRuntime.runtimeState.activeTasks).toEqual([]);
+
+    const financeRuntime = contextPackForAgentRuntime({
+      ...pack,
+      querySummary: '去查一下财务状况'
+    });
+    expect(financeRuntime.relevantFinanceItems[0]?.summary).toContain('净现金流');
+    expect(financeRuntime.relevantFinanceItems.some((item) => item.objectType === 'transaction')).toBe(true);
 
     const summary = summarizeContextPackForBriefing(pack);
     expect(summary.join('\n')).toContain('客户焦点');

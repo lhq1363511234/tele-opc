@@ -94,7 +94,7 @@ export function parseFinanceInstruction(text: string): FinanceIntake | null {
 }
 
 export function isFinanceDashboardRequest(text: string) {
-  return /财务看板|现金流|本月收入|本月支出|未收发票|即将扣费|finance dashboard|cash\s*flow/i.test(text.trim());
+  return /财务看板|财务状况|财务情况|查(?:一下)?财务|看看财务|查看财务|财务怎么样|收支|现金流|本月收入|本月支出|未收发票|即将扣费|查账|账本|finance dashboard|cash\s*flow/i.test(text.trim());
 }
 
 export function classifyFinanceCategory(text: string) {

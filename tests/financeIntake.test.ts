@@ -44,6 +44,8 @@ describe('finance intake', () => {
   it('detects dashboard requests and categories', () => {
     expect(isFinanceDashboardRequest('这个月现金流怎么样？')).toBe(true);
     expect(isFinanceDashboardRequest('打开财务看板')).toBe(true);
+    expect(isFinanceDashboardRequest('去查一下财务状况')).toBe(true);
+    expect(isFinanceDashboardRequest('看看财务情况')).toBe(true);
     expect(isFinanceDashboardRequest('今天任务是什么？')).toBe(false);
     expect(classifyFinanceCategory('广告投放')).toBe('marketing');
   });

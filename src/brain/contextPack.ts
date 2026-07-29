@@ -57,8 +57,37 @@ export interface ContextPackRepositories {
   }>;
   getFinanceDashboard?(): Promise<{
     riskAlerts?: string[];
+    suggestedActions?: string[];
+    monthlyIncome?: number;
+    monthlyExpenses?: number;
     netCashflow?: number;
     currency?: string;
+    openInvoices?: Array<{
+      id?: string;
+      customer_name?: string;
+      amount?: string | number;
+      currency?: string;
+      status?: string;
+      due_at?: string | null;
+    }>;
+    upcomingSubscriptions?: Array<{
+      id?: string;
+      vendor_name?: string | null;
+      name?: string;
+      amount?: string | number;
+      currency?: string;
+      next_billing_at?: string | null;
+    }>;
+    recentTransactions?: Array<{
+      id?: string;
+      direction?: string;
+      amount?: string | number;
+      currency?: string;
+      category?: string | null;
+      counterparty?: string | null;
+      occurred_at?: string;
+      description?: string | null;
+    }>;
   }>;
   getASelfProfile?(id?: string): Promise<{
     id: string;
@@ -203,8 +232,37 @@ export async function buildContextPack(
   };
   type FinanceContext = {
     riskAlerts?: string[];
+    suggestedActions?: string[];
+    monthlyIncome?: number;
+    monthlyExpenses?: number;
     netCashflow?: number;
     currency?: string;
+    openInvoices?: Array<{
+      id?: string;
+      customer_name?: string;
+      amount?: string | number;
+      currency?: string;
+      status?: string;
+      due_at?: string | null;
+    }>;
+    upcomingSubscriptions?: Array<{
+      id?: string;
+      vendor_name?: string | null;
+      name?: string;
+      amount?: string | number;
+      currency?: string;
+      next_billing_at?: string | null;
+    }>;
+    recentTransactions?: Array<{
+      id?: string;
+      direction?: string;
+      amount?: string | number;
+      currency?: string;
+      category?: string | null;
+      counterparty?: string | null;
+      occurred_at?: string;
+      description?: string | null;
+    }>;
   };
   const crm = settled(crmResult, 'crm', errors, {} as CrmContext) as CrmContext;
   const finance = settled(financeResult, 'finance', errors, {} as FinanceContext) as FinanceContext;
@@ -299,14 +357,57 @@ export async function buildContextPack(
     })))
   ].slice(0, 6);
 
-  const relevantFinanceItems = (finance.riskAlerts ?? []).slice(0, 5).map((alert, index) => ({
-    objectType: 'finance_alert',
-    objectId: `fin_alert_${index}`,
-    title: 'finance risk',
-    summary: alert,
-    relevance: 0.7,
-    source: 'finance'
-  }));
+  const relevantFinanceItems = [
+    {
+      objectType: 'finance_dashboard',
+      objectId: 'finance_current_month',
+      title: '本月财务概览',
+      summary: [
+        `收入 ${formatContextMoney(finance.monthlyIncome ?? 0, finance.currency ?? 'CNY')}`,
+        `支出 ${formatContextMoney(finance.monthlyExpenses ?? 0, finance.currency ?? 'CNY')}`,
+        `净现金流 ${formatContextMoney(finance.netCashflow ?? 0, finance.currency ?? 'CNY')}`
+      ].join(' / '),
+      relevance: 0.9,
+      source: 'finance'
+    },
+    ...(finance.riskAlerts ?? []).slice(0, 5).map((alert, index) => ({
+      objectType: 'finance_alert',
+      objectId: `fin_alert_${index}`,
+      title: 'finance risk',
+      summary: alert,
+      relevance: 0.82,
+      source: 'finance'
+    })),
+    ...(finance.suggestedActions ?? []).slice(0, 4).map((action, index) => ({
+      objectType: 'finance_suggested_action',
+      objectId: `fin_action_${index}`,
+      title: 'finance action',
+      summary: action,
+      relevance: 0.76,
+      source: 'finance'
+    })),
+    ...(finance.openInvoices ?? []).slice(0, 5).map((invoice) => ({
+      objectType: 'invoice',
+      objectId: invoice.id ?? `invoice_${invoice.customer_name ?? 'unknown'}`,
+      title: `未收发票：${invoice.customer_name ?? '未知客户'}`,
+      summary: `${formatContextMoney(invoice.amount ?? 0, invoice.currency ?? finance.currency ?? 'CNY')} / ${invoice.status ?? 'unknown'}${invoice.due_at ? ` / due ${invoice.due_at}` : ''}`,
+      relevance: 0.8,
+      source: 'finance'
+    })),
+    ...(finance.recentTransactions ?? []).slice(0, 6).map((transaction) => ({
+      objectType: 'transaction',
+      objectId: transaction.id ?? `txn_${transaction.occurred_at ?? 'unknown'}`,
+      title: `${transaction.direction === 'expense' ? '支出' : '收入'}：${formatContextMoney(transaction.amount ?? 0, transaction.currency ?? finance.currency ?? 'CNY')}`,
+      summary: [
+        transaction.category,
+        transaction.counterparty,
+        transaction.description,
+        transaction.occurred_at
+      ].filter(Boolean).join(' / ').slice(0, 240),
+      relevance: 0.74,
+      source: 'finance'
+    }))
+  ].slice(0, 16);
 
   const riskNotes = [
     ...pendingApprovals.map((approval) => ({
@@ -503,6 +604,13 @@ function scoreText(query: string, content: string) {
     if (hay.includes(token)) hits += 1;
   }
   return Math.min(1, 0.25 + hits / Math.max(tokens.length, 1));
+}
+
+function formatContextMoney(amount: string | number, currency: string) {
+  const numeric = Number(amount);
+  const safeAmount = Number.isFinite(numeric) ? numeric : 0;
+  const symbol = currency === 'USD' ? '$' : '¥';
+  return `${symbol}${safeAmount.toFixed(Math.abs(safeAmount) >= 100 ? 0 : 2)}`;
 }
 
 function inferRecommendedAgents(query: string, activeOwners: string[]) {
