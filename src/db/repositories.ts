@@ -50,6 +50,8 @@ import type {
   CampaignEventRecord,
   CampaignRecord,
   EvidenceItemRecord,
+  PaymentQrCodeRecord,
+  PaymentRequestRecord,
   LeadSourceRecord,
   LeadRecord,
   LeadScoreRecord,
@@ -263,6 +265,8 @@ const backupTableNames = [
   'evaluation_cases',
   'evaluation_runs',
   'evaluation_results',
+  'payment_qr_codes',
+  'payment_requests',
   'permission_profiles',
   'skill_registry',
   'skill_versions',
@@ -2241,6 +2245,474 @@ export class Repositories {
       recentTransactions,
       riskAlerts,
       suggestedActions
+    };
+  }
+
+  async createPaymentQrCode(params: {
+    label: string;
+    provider: string;
+    currency: string;
+    imagePath: string;
+    imageMime: string;
+    imageSizeBytes: number;
+    isDefault?: boolean;
+    notes?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `pqr_${randomUUID()}`;
+    const activeCount = await this.pool.query(
+      `SELECT count(*)::int AS count FROM payment_qr_codes WHERE status = 'active'`
+    );
+    const shouldDefault = params.isDefault ?? Number(activeCount.rows[0]?.count ?? 0) === 0;
+    if (shouldDefault) {
+      await this.pool.query(`UPDATE payment_qr_codes SET is_default = false, updated_at = now() WHERE is_default = true`);
+    }
+    const result = await this.pool.query(
+      `
+      INSERT INTO payment_qr_codes (
+        id, label, provider, currency, image_path, image_mime,
+        image_size_bytes, is_default, notes, metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+      `,
+      [
+        id,
+        params.label,
+        params.provider,
+        params.currency,
+        params.imagePath,
+        params.imageMime,
+        params.imageSizeBytes,
+        shouldDefault,
+        params.notes ?? null,
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    const qrCode = result.rows[0] as PaymentQrCodeRecord;
+    await this.audit({
+      actorType: 'web_console',
+      action: 'payment_qr_code_created',
+      entityType: 'payment_qr_code',
+      entityId: qrCode.id,
+      metadata: {
+        label: qrCode.label,
+        provider: qrCode.provider,
+        currency: qrCode.currency,
+        imageSizeBytes: qrCode.image_size_bytes,
+        isDefault: qrCode.is_default
+      }
+    });
+    return qrCode;
+  }
+
+  async listPaymentQrCodes(limit = 50) {
+    const result = await this.pool.query(
+      `
+      SELECT *
+      FROM payment_qr_codes
+      WHERE status <> 'deleted'
+      ORDER BY is_default DESC, created_at DESC
+      LIMIT $1
+      `,
+      [Math.min(200, Math.max(1, limit))]
+    );
+    return result.rows as PaymentQrCodeRecord[];
+  }
+
+  async getPaymentQrCode(id: string) {
+    const result = await this.pool.query(
+      `SELECT * FROM payment_qr_codes WHERE id = $1 AND status <> 'deleted'`,
+      [id]
+    );
+    return (result.rows[0] as PaymentQrCodeRecord | undefined) ?? null;
+  }
+
+  async getDefaultPaymentQrCode() {
+    const result = await this.pool.query(
+      `
+      SELECT *
+      FROM payment_qr_codes
+      WHERE status = 'active'
+      ORDER BY is_default DESC, created_at DESC
+      LIMIT 1
+      `
+    );
+    return (result.rows[0] as PaymentQrCodeRecord | undefined) ?? null;
+  }
+
+  async createPaymentRequest(params: {
+    qrCodeId: string;
+    title: string;
+    description?: string;
+    customerName?: string;
+    customerContact?: string;
+    amount: number;
+    currency: string;
+    dueAt?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const client = await this.pool.connect();
+    const id = `prq_${randomUUID()}`;
+    const shortCode = randomUUID().replace(/-/g, '').slice(0, 16);
+    const invoiceId = `inv_${randomUUID()}`;
+    const customerName = params.customerName?.trim() || '未命名客户';
+    try {
+      await client.query('BEGIN');
+      const qr = await client.query(
+        `SELECT id, label, provider FROM payment_qr_codes WHERE id = $1 AND status = 'active' FOR SHARE`,
+        [params.qrCodeId]
+      );
+      if (!qr.rowCount) {
+        throw new Error('payment_qr_code_not_found');
+      }
+      await client.query(
+        `
+        INSERT INTO invoices (id, customer_name, amount, currency, status, issued_at, due_at, notes, metadata)
+        VALUES ($1, $2, $3, $4, 'sent', now(), $5, $6, $7)
+        `,
+        [
+          invoiceId,
+          customerName,
+          params.amount,
+          params.currency,
+          params.dueAt ?? null,
+          [params.title, params.description].filter(Boolean).join('\n\n'),
+          JSON.stringify({
+            source: 'payment_qr_request',
+            paymentRequestId: id,
+            customerContact: params.customerContact ?? null
+          })
+        ]
+      );
+      const result = await client.query(
+        `
+        INSERT INTO payment_requests (
+          id, short_code, qr_code_id, invoice_id, title, description,
+          customer_name, customer_contact, amount, currency, due_at, metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *
+        `,
+        [
+          id,
+          shortCode,
+          params.qrCodeId,
+          invoiceId,
+          params.title,
+          params.description ?? null,
+          params.customerName ?? null,
+          params.customerContact ?? null,
+          params.amount,
+          params.currency,
+          params.dueAt ?? null,
+          JSON.stringify(params.metadata ?? {})
+        ]
+      );
+      await client.query('COMMIT');
+      const request = result.rows[0] as PaymentRequestRecord;
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_payment_request_${request.id}`,
+        grain: 'event',
+        scope: 'revenue',
+        metric_code: 'payment_request_created',
+        metric_name: '创建收款单',
+        metric_value: 1,
+        amount: Number(request.amount),
+        channel: 'payment_qr',
+        customer: request.customer_name,
+        stage: 'request',
+        status: request.status,
+        note: request.title,
+        source_object_type: 'payment_request',
+        source_object_id: request.id,
+        is_demo: false,
+        metadata: { qr_code_id: request.qr_code_id, invoice_id: request.invoice_id }
+      });
+      return request;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listPaymentRequests(limit = 50) {
+    const result = await this.pool.query(
+      `
+      SELECT payment_requests.*, payment_qr_codes.label AS qr_label, payment_qr_codes.provider AS qr_provider
+      FROM payment_requests
+      LEFT JOIN payment_qr_codes ON payment_qr_codes.id = payment_requests.qr_code_id
+      ORDER BY payment_requests.created_at DESC
+      LIMIT $1
+      `,
+      [Math.min(200, Math.max(1, limit))]
+    );
+    return result.rows as PaymentRequestRecord[];
+  }
+
+  async getPaymentRequest(id: string) {
+    const result = await this.pool.query(
+      `
+      SELECT payment_requests.*, payment_qr_codes.label AS qr_label, payment_qr_codes.provider AS qr_provider
+      FROM payment_requests
+      LEFT JOIN payment_qr_codes ON payment_qr_codes.id = payment_requests.qr_code_id
+      WHERE payment_requests.id = $1
+      `,
+      [id]
+    );
+    return (result.rows[0] as PaymentRequestRecord | undefined) ?? null;
+  }
+
+  async getPaymentRequestByShortCode(shortCode: string) {
+    const result = await this.pool.query(
+      `
+      SELECT payment_requests.*, payment_qr_codes.label AS qr_label, payment_qr_codes.provider AS qr_provider
+      FROM payment_requests
+      LEFT JOIN payment_qr_codes ON payment_qr_codes.id = payment_requests.qr_code_id
+      WHERE payment_requests.short_code = $1
+      `,
+      [shortCode]
+    );
+    return (result.rows[0] as PaymentRequestRecord | undefined) ?? null;
+  }
+
+  async markPaymentRequestClaimed(shortCode: string, params: {
+    payerName?: string;
+    payerContact?: string;
+    payerNote?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const result = await this.pool.query(
+      `
+      UPDATE payment_requests
+      SET status = CASE WHEN status = 'pending' THEN 'claimed_paid' ELSE status END,
+        claimed_paid_at = COALESCE(claimed_paid_at, now()),
+        payer_name = COALESCE($2, payer_name),
+        payer_contact = COALESCE($3, payer_contact),
+        payer_note = COALESCE($4, payer_note),
+        metadata = payment_requests.metadata || $5::jsonb,
+        updated_at = now()
+      WHERE short_code = $1
+        AND status IN ('pending', 'claimed_paid')
+      RETURNING *
+      `,
+      [
+        shortCode,
+        params.payerName ?? null,
+        params.payerContact ?? null,
+        params.payerNote ?? null,
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    const request = (result.rows[0] as PaymentRequestRecord | undefined) ?? await this.getPaymentRequestByShortCode(shortCode);
+    if (request && request.status === 'claimed_paid') {
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_payment_claimed_${request.id}`,
+        grain: 'event',
+        scope: 'revenue',
+        metric_code: 'payment_claimed_paid',
+        metric_name: '客户声明已付款',
+        metric_value: 1,
+        amount: Number(request.amount),
+        channel: 'payment_qr',
+        customer: request.customer_name ?? params.payerName ?? null,
+        stage: 'collection',
+        status: request.status,
+        note: request.title,
+        source_object_type: 'payment_request',
+        source_object_id: request.id,
+        is_demo: false,
+        metadata: { payerContact: params.payerContact ?? null }
+      });
+    }
+    return request;
+  }
+
+  async confirmPaymentRequestPaid(id: string, params: {
+    confirmedBy?: string;
+    note?: string;
+  }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query(
+        `SELECT * FROM payment_requests WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      const current = existing.rows[0] as PaymentRequestRecord | undefined;
+      if (!current) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      if (current.status === 'cancelled') {
+        throw new Error('payment_request_cancelled');
+      }
+
+      let transactionId = current.transaction_id;
+      if (!transactionId) {
+        transactionId = `txn_${randomUUID()}`;
+        await client.query(
+          `
+          INSERT INTO transactions (
+            id, direction, amount, currency, category, counterparty,
+            invoice_id, description, source, metadata
+          )
+          VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, 'payment_qr_manual_confirm', $8)
+          `,
+          [
+            transactionId,
+            current.amount,
+            current.currency,
+            '收款码收款',
+            current.customer_name ?? current.payer_name ?? null,
+            current.invoice_id,
+            current.description ? `${current.title}\n${current.description}` : current.title,
+            JSON.stringify({
+              source: 'payment_qr_request',
+              paymentRequestId: current.id,
+              confirmedBy: params.confirmedBy ?? null
+            })
+          ]
+        );
+      }
+
+      if (current.invoice_id) {
+        await client.query(
+          `
+          UPDATE invoices
+          SET status = 'paid', paid_at = COALESCE(paid_at, now()), updated_at = now(),
+            metadata = invoices.metadata || $2::jsonb
+          WHERE id = $1
+          `,
+          [
+            current.invoice_id,
+            JSON.stringify({ paidViaPaymentRequestId: current.id, transactionId })
+          ]
+        );
+      }
+
+      const updated = await client.query(
+        `
+        UPDATE payment_requests
+        SET status = 'paid',
+          transaction_id = $2,
+          confirmed_paid_at = COALESCE(confirmed_paid_at, now()),
+          confirmation_note = COALESCE($3, confirmation_note),
+          metadata = payment_requests.metadata || $4::jsonb,
+          updated_at = now()
+        WHERE id = $1
+        RETURNING *
+        `,
+        [
+          id,
+          transactionId,
+          params.note ?? null,
+          JSON.stringify({ confirmedBy: params.confirmedBy ?? null })
+        ]
+      );
+      await client.query('COMMIT');
+      const request = updated.rows[0] as PaymentRequestRecord;
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_payment_paid_${request.id}`,
+        grain: 'event',
+        scope: 'revenue',
+        metric_code: 'payment_received',
+        metric_name: '收款到账确认',
+        metric_value: 1,
+        amount: Number(request.amount),
+        channel: 'payment_qr',
+        customer: request.customer_name ?? request.payer_name,
+        stage: 'cash_in',
+        status: 'paid',
+        note: request.title,
+        source_object_type: 'payment_request',
+        source_object_id: request.id,
+        is_demo: false,
+        metadata: { transactionId, invoiceId: request.invoice_id }
+      });
+      return { request, transactionId };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async cancelPaymentRequest(id: string, note?: string) {
+    const result = await this.pool.query(
+      `
+      UPDATE payment_requests
+      SET status = 'cancelled',
+        cancelled_at = COALESCE(cancelled_at, now()),
+        confirmation_note = COALESCE($2, confirmation_note),
+        updated_at = now()
+      WHERE id = $1 AND status <> 'paid'
+      RETURNING *
+      `,
+      [id, note ?? null]
+    );
+    const request = (result.rows[0] as PaymentRequestRecord | undefined) ?? null;
+    if (request?.invoice_id) {
+      await this.pool.query(
+        `UPDATE invoices SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status <> 'paid'`,
+        [request.invoice_id]
+      );
+    }
+    if (request) {
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_payment_cancelled_${request.id}`,
+        grain: 'event',
+        scope: 'revenue',
+        metric_code: 'payment_request_cancelled',
+        metric_name: '收款单取消',
+        metric_value: 1,
+        amount: Number(request.amount),
+        channel: 'payment_qr',
+        customer: request.customer_name,
+        stage: 'collection',
+        status: 'cancelled',
+        note: request.title,
+        source_object_type: 'payment_request',
+        source_object_id: request.id,
+        is_demo: false,
+        metadata: { note: note ?? null }
+      });
+    }
+    return request;
+  }
+
+  async getPaymentCollectionDashboard() {
+    const [qrCodes, requests, totals] = await Promise.all([
+      this.listPaymentQrCodes(50),
+      this.listPaymentRequests(60),
+      this.pool.query(
+        `
+        SELECT
+          COALESCE(sum(amount) FILTER (WHERE status IN ('pending', 'claimed_paid')), 0)::numeric(14,2) AS outstanding_amount,
+          COALESCE(sum(amount) FILTER (WHERE status = 'claimed_paid'), 0)::numeric(14,2) AS claimed_amount,
+          COALESCE(sum(amount) FILTER (WHERE status = 'paid' AND confirmed_paid_at >= date_trunc('month', now())), 0)::numeric(14,2) AS paid_this_month,
+          count(*) FILTER (WHERE status IN ('pending', 'claimed_paid'))::int AS open_count,
+          count(*) FILTER (WHERE status = 'claimed_paid')::int AS claimed_count,
+          count(*) FILTER (WHERE status = 'paid' AND confirmed_paid_at >= date_trunc('month', now()))::int AS paid_count_this_month
+        FROM payment_requests
+        `
+      )
+    ]);
+    const row = totals.rows[0] ?? {};
+    return {
+      qrCodes,
+      requests,
+      metrics: {
+        outstandingAmount: Number(row.outstanding_amount ?? 0),
+        claimedAmount: Number(row.claimed_amount ?? 0),
+        paidThisMonth: Number(row.paid_this_month ?? 0),
+        openCount: Number(row.open_count ?? 0),
+        claimedCount: Number(row.claimed_count ?? 0),
+        paidCountThisMonth: Number(row.paid_count_this_month ?? 0)
+      }
     };
   }
 

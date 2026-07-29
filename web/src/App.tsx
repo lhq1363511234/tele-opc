@@ -11,7 +11,9 @@ import {
   CircleDollarSign,
   Coffee,
   Command,
+  Copy,
   Clock3,
+  ExternalLink,
   Eye,
   Gauge,
   Info,
@@ -20,6 +22,7 @@ import {
   Menu,
   Network,
   RefreshCw,
+  QrCode,
   Search,
   Send,
   Settings,
@@ -1975,12 +1978,13 @@ function FinancePage() {
     <div className="dashboard-grid finance-grid">
       {panel === 'approvals' ? <ApprovalCenterPanel /> : null}
       {panel === 'import' ? <MiniAppActionPanel kind="financeImport" /> : null}
-      <QuickEntry config={financeQuickEntry} />
       <section className="metric-grid wide">
         <MetricCard label="本月收入" value={formatMoney(dashboard.monthlyIncome, currency)} icon={CircleDollarSign} />
         <MetricCard label="本月支出" value={formatMoney(dashboard.monthlyExpenses, currency)} icon={CircleDollarSign} />
         <MetricCard label="净现金流" value={formatMoney(dashboard.netCashflow, currency)} icon={Activity} />
       </section>
+      <PaymentCollectionPanel />
+      <QuickEntry config={financeQuickEntry} />
       <section className="panel danger-panel">
         <PanelHeader title="财务审批边界" hint="付款、退款、转账、税务、账单变更必须审批" />
         <div className="danger-callout">
@@ -2009,6 +2013,359 @@ function FinancePage() {
       </section>
     </div>
   );
+}
+
+type PaymentQrCodeView = AnyRecord & {
+  id: string;
+  label: string;
+  provider: string;
+  currency: string;
+  imageUrl: string;
+  is_default: boolean;
+  status: string;
+};
+
+type PaymentRequestView = AnyRecord & {
+  id: string;
+  short_code: string;
+  title: string;
+  amount: string;
+  amountNumber: number;
+  currency: string;
+  status: string;
+  customer_name?: string | null;
+  customer_contact?: string | null;
+  qr_label?: string | null;
+  paymentUrl: string;
+  created_at: string;
+  claimed_paid_at?: string | null;
+  confirmed_paid_at?: string | null;
+};
+
+type PaymentDashboardResponse = {
+  ok: boolean;
+  dashboard: {
+    qrCodes: PaymentQrCodeView[];
+    requests: PaymentRequestView[];
+    metrics: {
+      outstandingAmount: number;
+      claimedAmount: number;
+      paidThisMonth: number;
+      openCount: number;
+      claimedCount: number;
+      paidCountThisMonth: number;
+    };
+  };
+  modes: Array<{ id: string; label: string; status: string; note: string }>;
+};
+
+function PaymentCollectionPanel() {
+  const queryClient = useQueryClient();
+  const payments = useQuery({
+    queryKey: ['payment-dashboard'],
+    queryFn: () => apiGet<PaymentDashboardResponse>('/api/web/payments')
+  });
+  const [qrForm, setQrForm] = useState({
+    label: '微信/支付宝收款码',
+    provider: 'wechat_pay',
+    currency: 'CNY',
+    imageDataUrl: '',
+    fileName: '',
+    notes: ''
+  });
+  const [requestForm, setRequestForm] = useState({
+    qrCodeId: '',
+    title: 'AI 咨询服务定金',
+    amount: '100',
+    currency: 'CNY',
+    customerName: '',
+    customerContact: '',
+    description: '扫码付款后点击“我已支付”，我核对到账后会开始推进。'
+  });
+  const [lastPaymentUrl, setLastPaymentUrl] = useState('');
+  const [fileError, setFileError] = useState('');
+
+  const qrCodes = payments.data?.dashboard.qrCodes ?? [];
+  const requests = payments.data?.dashboard.requests ?? [];
+  const metrics = payments.data?.dashboard.metrics;
+  const selectedQr = qrCodes.find((qr) => qr.id === requestForm.qrCodeId) ?? qrCodes[0];
+
+  useEffect(() => {
+    if (!requestForm.qrCodeId && qrCodes.length) {
+      setRequestForm((current) => ({ ...current, qrCodeId: qrCodes[0].id, currency: qrCodes[0].currency || current.currency }));
+    }
+  }, [qrCodes, requestForm.qrCodeId]);
+
+  const uploadQr = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; qrCode: PaymentQrCodeView }>('/api/web/payments/qr-codes', {
+      label: qrForm.label,
+      provider: qrForm.provider,
+      currency: qrForm.currency,
+      imageDataUrl: qrForm.imageDataUrl,
+      notes: qrForm.notes || undefined,
+      isDefault: qrCodes.length === 0
+    }),
+    onSuccess: (result) => {
+      setQrForm((current) => ({ ...current, imageDataUrl: '', fileName: '' }));
+      setRequestForm((current) => ({ ...current, qrCodeId: result.qrCode.id, currency: result.qrCode.currency || current.currency }));
+      void queryClient.invalidateQueries({ queryKey: ['payment-dashboard'] });
+    }
+  });
+
+  const createPayment = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; request: PaymentRequestView }>('/api/web/payments/requests', {
+      qrCodeId: requestForm.qrCodeId || selectedQr?.id,
+      title: requestForm.title,
+      amount: Number(requestForm.amount),
+      currency: requestForm.currency,
+      customerName: requestForm.customerName || undefined,
+      customerContact: requestForm.customerContact || undefined,
+      description: requestForm.description || undefined
+    }),
+    onSuccess: (result) => {
+      setLastPaymentUrl(result.request.paymentUrl);
+      void navigator.clipboard?.writeText(result.request.paymentUrl).catch(() => undefined);
+      void queryClient.invalidateQueries({ queryKey: ['payment-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['finance-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    }
+  });
+
+  const decidePayment = useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: 'paid' | 'cancelled' }) =>
+      apiPost(`/api/web/payments/requests/${encodeURIComponent(id)}/decision`, {
+        decision,
+        note: decision === 'paid' ? 'Owner 已核对到账' : 'Owner 取消收款单'
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['payment-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['finance-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['overview'] });
+      void queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    }
+  });
+
+  async function onQrFile(file?: File | null) {
+    setFileError('');
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setFileError('图片不能超过 5MB。');
+      return;
+    }
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+      setFileError('只支持 PNG / JPG / WebP 收款码图片。');
+      return;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    setQrForm((current) => ({
+      ...current,
+      label: current.label || file.name.replace(/\.[^.]+$/, ''),
+      fileName: file.name,
+      imageDataUrl: dataUrl
+    }));
+  }
+
+  function copyPaymentUrl(url: string) {
+    void navigator.clipboard?.writeText(url).catch(() => undefined);
+    setLastPaymentUrl(url);
+  }
+
+  return (
+    <section className="panel payment-collection-panel">
+      <PanelHeader title="收款码收钱" hint="上传收款码 → 生成收款页 → 客户声明已付 → 你确认到账 → 自动入账" />
+      <div className="payment-mode-row">
+        {(payments.data?.modes ?? []).map((mode) => (
+          <article key={mode.id}>
+            <strong>{mode.label}</strong>
+            <StatusPill status={mode.status === 'active' ? 'done' : 'active'} />
+            <span>{mode.note}</span>
+          </article>
+        ))}
+      </div>
+
+      <div className="payment-stat-row">
+        <article><span>待收金额</span><strong>{formatMoney(metrics?.outstandingAmount ?? 0, requestForm.currency)}</strong><small>{metrics?.openCount ?? 0} 个收款单</small></article>
+        <article><span>客户已声明</span><strong>{formatMoney(metrics?.claimedAmount ?? 0, requestForm.currency)}</strong><small>{metrics?.claimedCount ?? 0} 个待核对</small></article>
+        <article><span>本月确认到账</span><strong>{formatMoney(metrics?.paidThisMonth ?? 0, requestForm.currency)}</strong><small>{metrics?.paidCountThisMonth ?? 0} 笔已入账</small></article>
+      </div>
+
+      {payments.isLoading ? <LoadingPanel /> : null}
+      {payments.isError ? <ErrorPanel error={payments.error} /> : null}
+
+      <div className="payment-workbench">
+        <form
+          className="payment-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!qrForm.imageDataUrl) {
+              setFileError('请先选择一张收款码图片。');
+              return;
+            }
+            uploadQr.mutate();
+          }}
+        >
+          <div className="payment-form-head">
+            <QrCode size={18} />
+            <div>
+              <strong>1. 上传你的收款码</strong>
+              <span>微信、支付宝或其他二维码都可以，系统只保存到本机服务器。</span>
+            </div>
+          </div>
+          <label>名称
+            <input value={qrForm.label} onChange={(event) => setQrForm({ ...qrForm, label: event.target.value })} />
+          </label>
+          <div className="payment-form-inline">
+            <label>类型
+              <select value={qrForm.provider} onChange={(event) => setQrForm({ ...qrForm, provider: event.target.value })}>
+                <option value="wechat_pay">微信收款码</option>
+                <option value="alipay">支付宝收款码</option>
+                <option value="bank">银行/聚合码</option>
+                <option value="crypto">Crypto</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>币种
+              <input value={qrForm.currency} onChange={(event) => setQrForm({ ...qrForm, currency: event.target.value.toUpperCase() })} />
+            </label>
+          </div>
+          <label>图片
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void onQrFile(event.target.files?.[0])} />
+          </label>
+          {qrForm.fileName ? <p className="inline-success"><CheckCircle2 size={15} /> 已选择：{qrForm.fileName}</p> : null}
+          {fileError ? <p className="form-error">{fileError}</p> : null}
+          <label>备注
+            <textarea rows={3} value={qrForm.notes} onChange={(event) => setQrForm({ ...qrForm, notes: event.target.value })} placeholder="例如：微信个人收款码，只用于小额定金" />
+          </label>
+          <button type="submit" disabled={uploadQr.isPending || !qrForm.imageDataUrl}>
+            {uploadQr.isPending ? '上传中…' : '保存收款码'}
+          </button>
+          {uploadQr.isError ? <p className="form-error">上传失败：{uploadQr.error.message}</p> : null}
+        </form>
+
+        <form
+          className="payment-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            createPayment.mutate();
+          }}
+        >
+          <div className="payment-form-head">
+            <CircleDollarSign size={18} />
+            <div>
+              <strong>2. 生成收款链接</strong>
+              <span>发给客户扫码付款。付款不会自动确认，必须你核对到账。</span>
+            </div>
+          </div>
+          <label>使用收款码
+            <select value={requestForm.qrCodeId || selectedQr?.id || ''} onChange={(event) => {
+              const next = qrCodes.find((qr) => qr.id === event.target.value);
+              setRequestForm({ ...requestForm, qrCodeId: event.target.value, currency: next?.currency || requestForm.currency });
+            }}>
+              {!qrCodes.length ? <option value="">请先上传收款码</option> : null}
+              {qrCodes.map((qr) => (
+                <option key={qr.id} value={qr.id}>{qr.label} · {qr.currency}{qr.is_default ? ' · 默认' : ''}</option>
+              ))}
+            </select>
+          </label>
+          {selectedQr ? (
+            <div className="payment-qr-preview">
+              <img src={selectedQr.imageUrl} alt={selectedQr.label} />
+              <span>{selectedQr.provider} · {selectedQr.status}</span>
+            </div>
+          ) : null}
+          <label>收款标题
+            <input value={requestForm.title} onChange={(event) => setRequestForm({ ...requestForm, title: event.target.value })} />
+          </label>
+          <div className="payment-form-inline">
+            <label>金额
+              <input type="number" min="0" step="0.01" value={requestForm.amount} onChange={(event) => setRequestForm({ ...requestForm, amount: event.target.value })} />
+            </label>
+            <label>币种
+              <input value={requestForm.currency} onChange={(event) => setRequestForm({ ...requestForm, currency: event.target.value.toUpperCase() })} />
+            </label>
+          </div>
+          <div className="payment-form-inline">
+            <label>客户名
+              <input value={requestForm.customerName} onChange={(event) => setRequestForm({ ...requestForm, customerName: event.target.value })} placeholder="可选" />
+            </label>
+            <label>联系方式
+              <input value={requestForm.customerContact} onChange={(event) => setRequestForm({ ...requestForm, customerContact: event.target.value })} placeholder="可选" />
+            </label>
+          </div>
+          <label>付款说明
+            <textarea rows={3} value={requestForm.description} onChange={(event) => setRequestForm({ ...requestForm, description: event.target.value })} />
+          </label>
+          <button type="submit" disabled={createPayment.isPending || !selectedQr || !Number(requestForm.amount)}>
+            {createPayment.isPending ? '生成中…' : '生成并复制收款链接'}
+          </button>
+          {createPayment.isError ? <p className="form-error">创建失败：{createPayment.error.message}</p> : null}
+          {lastPaymentUrl ? (
+            <div className="payment-url-box">
+              <span>已复制最近收款链接</span>
+              <a href={lastPaymentUrl} target="_blank" rel="noreferrer">{lastPaymentUrl}</a>
+            </div>
+          ) : null}
+        </form>
+      </div>
+
+      <div className="payment-request-list">
+        <div className="payment-list-head">
+          <strong>收款单 / 到账确认</strong>
+          <button className="ghost-button" type="button" onClick={() => void queryClient.invalidateQueries({ queryKey: ['payment-dashboard'] })}>
+            <RefreshCw size={15} /> 刷新
+          </button>
+        </div>
+        {requests.slice(0, 12).map((request) => (
+          <article key={request.id} className={`payment-request-card status-${request.status}`}>
+            <div>
+              <strong>{request.title}</strong>
+              <span>{request.customer_name || '未填写客户'} · {formatMoney(request.amountNumber ?? request.amount, request.currency)} · {paymentStatusLabel(request.status)}</span>
+              <small>{request.qr_label || '收款码'} · {formatTime(request.created_at)}</small>
+            </div>
+            <div className="payment-card-actions">
+              <button type="button" className="ghost-button" onClick={() => copyPaymentUrl(request.paymentUrl)} title="复制链接">
+                <Copy size={15} /> 复制
+              </button>
+              <a className="ghost-button" href={request.paymentUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={15} /> 打开
+              </a>
+              {request.status !== 'paid' && request.status !== 'cancelled' ? (
+                <button type="button" onClick={() => decidePayment.mutate({ id: request.id, decision: 'paid' })} disabled={decidePayment.isPending}>
+                  确认已到账
+                </button>
+              ) : null}
+              {request.status !== 'paid' && request.status !== 'cancelled' ? (
+                <button type="button" className="danger-button" onClick={() => decidePayment.mutate({ id: request.id, decision: 'cancelled' })} disabled={decidePayment.isPending}>
+                  取消
+                </button>
+              ) : null}
+            </div>
+          </article>
+        ))}
+        {!requests.length ? <EmptyState text="还没有收款单。先上传收款码，再生成一个 100 元测试收款链接。" /> : null}
+      </div>
+    </section>
+  );
+}
+
+function paymentStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: '待付款',
+    claimed_paid: '客户声明已付，待核对',
+    paid: '已确认到账',
+    cancelled: '已取消'
+  };
+  return labels[status] ?? status;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('file_read_failed'));
+    reader.readAsDataURL(file);
+  });
 }
 
 type DependencyDraft = AppDependency & {
@@ -3503,4 +3860,3 @@ function useRoute(): [RouteId, (route: RouteId) => void] {
 
   return [route, setRoute];
 }
-

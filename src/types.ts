@@ -476,6 +476,50 @@ export interface FinanceDashboard {
   suggestedActions: string[];
 }
 
+export interface PaymentQrCodeRecord {
+  id: string;
+  label: string;
+  provider: string;
+  currency: string;
+  image_path: string;
+  image_mime: string;
+  image_size_bytes: number;
+  is_default: boolean;
+  status: string;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentRequestRecord {
+  id: string;
+  short_code: string;
+  qr_code_id: string | null;
+  invoice_id: string | null;
+  transaction_id: string | null;
+  title: string;
+  description: string | null;
+  customer_name: string | null;
+  customer_contact: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  due_at: string | null;
+  claimed_paid_at: string | null;
+  confirmed_paid_at: string | null;
+  cancelled_at: string | null;
+  payer_name: string | null;
+  payer_contact: string | null;
+  payer_note: string | null;
+  confirmation_note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  qr_label?: string | null;
+  qr_provider?: string | null;
+}
+
 export interface CalendarEventRecord {
   id: string;
   account_id: string | null;

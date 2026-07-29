@@ -25,6 +25,7 @@ import { buildBusinessAnalytics } from './web/analytics.js';
 import { registerPaperclipWebRoutes } from './integrations/paperclip/web-routes.js';
 import { registerASelfWebRoutes, registerASelfActionsRoutes } from './a-self/web-routes.js';
 import { registerBusinessActionRoutes } from './web/actions-routes.js';
+import { registerPaymentRoutes } from './web/payment-routes.js';
 import { registerStudioRoutes } from './web/studio-routes.js';
 import { registerWechatIlinkWebRoutes } from './channels/wechat-ilink/web-routes.js';
 import { registerPersonalWechatBridgeRoutes } from './channels/personal-wechat/routes.js';
@@ -126,6 +127,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   registerASelfWebRoutes(app, repos, allowWebConsoleAccess);
   registerASelfActionsRoutes(app, config, repos, allowWebConsoleAccess);
   registerBusinessActionRoutes(app, repos, allowWebConsoleAccess);
+  registerPaymentRoutes(app, config, repos, allowWebConsoleAccess);
   registerStudioRoutes(app, config, repos, allowWebConsoleAccess);
   registerWechatIlinkWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerPersonalWechatBridgeRoutes(app, config, repos, allowWebConsoleAccess);

@@ -4361,9 +4361,247 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   color: #1f7a55;
 }
 
+/* ---- 收款码收钱 ---- */
+.payment-collection-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  background:
+    linear-gradient(135deg, rgba(23, 126, 114, 0.07), rgba(244, 201, 93, 0.12)),
+    var(--surface);
+}
+
+.payment-mode-row,
+.payment-stat-row,
+.payment-workbench,
+.payment-request-list {
+  display: grid;
+  gap: 10px;
+}
+
+.payment-mode-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.payment-mode-row article,
+.payment-stat-row article,
+.payment-form,
+.payment-request-card {
+  min-width: 0;
+  border: 1px solid rgba(22, 32, 27, 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.payment-mode-row article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  padding: 12px;
+}
+
+.payment-mode-row article span:last-child {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.payment-stat-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.payment-stat-row article {
+  padding: 12px;
+}
+
+.payment-stat-row span,
+.payment-stat-row small,
+.payment-form-head span,
+.payment-request-card span,
+.payment-request-card small,
+.payment-url-box span,
+.payment-qr-preview span {
+  color: var(--muted);
+}
+
+.payment-stat-row strong {
+  display: block;
+  margin: 6px 0 3px;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.payment-workbench {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+}
+
+.payment-form {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+}
+
+.payment-form-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.payment-form-head strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.payment-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.payment-form-inline {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.payment-form input,
+.payment-form select,
+.payment-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcf8;
+  color: var(--ink);
+  padding: 9px 10px;
+  font: inherit;
+  outline: 0;
+}
+
+.payment-form textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.payment-form > button,
+.payment-request-card .payment-card-actions > button:not(.ghost-button) {
+  min-height: 40px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  padding: 0 14px;
+}
+
+.payment-form > button:disabled,
+.payment-request-card button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.payment-qr-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed #c8d2cc;
+  border-radius: 8px;
+  background: #fbfcf8;
+  padding: 10px;
+}
+
+.payment-qr-preview img {
+  width: 70px;
+  height: 70px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+}
+
+.payment-url-box {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(47, 143, 78, 0.22);
+  border-radius: 8px;
+  background: #e9f8ee;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+
+.payment-url-box a {
+  color: #17695f;
+  font-weight: 800;
+}
+
+.payment-list-head,
+.payment-request-card,
+.payment-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.payment-list-head {
+  justify-content: space-between;
+}
+
+.payment-request-card {
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.payment-request-card > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.payment-request-card.status-claimed_paid {
+  border-color: rgba(244, 201, 93, 0.8);
+  background: #fffaf0;
+}
+
+.payment-request-card.status-paid {
+  border-color: rgba(47, 143, 78, 0.28);
+  background: #f0f9f3;
+}
+
+.payment-card-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.payment-card-actions .ghost-button {
+  min-height: 34px;
+}
+
+.payment-card-actions .danger-button {
+  border: 1px solid #f0b5ae;
+  background: #fff0ee !important;
+  color: #b33f3f !important;
+}
+
 @media (max-width: 640px) {
   .quick-entry-form {
     grid-template-columns: 1fr;
+  }
+
+  .payment-mode-row,
+  .payment-stat-row,
+  .payment-workbench,
+  .payment-form-inline {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-request-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .payment-card-actions {
+    justify-content: flex-start;
   }
 }
 
