@@ -5,6 +5,8 @@ import { WechatIlinkClient } from './api-client.js';
 import { WechatReplyDraftService } from './draft-service.js';
 import { WechatIlinkStore } from './store.js';
 import type { WechatAccountRecord, WechatMessage } from './types.js';
+import { BullMqTaskDispatcher } from '../../queue/taskQueue.js';
+import { decideApproval } from '../../approvals/decision.js';
 
 export class WechatIlinkPoller {
   private readonly controllers = new Map<string, AbortController>();
@@ -16,7 +18,8 @@ export class WechatIlinkPoller {
     private readonly repos: Repositories,
     private readonly store: WechatIlinkStore,
     private readonly client = new WechatIlinkClient(),
-    private readonly drafts = new WechatReplyDraftService(config, repos)
+    private readonly drafts = new WechatReplyDraftService(config, repos),
+    private readonly taskDispatcher = new BullMqTaskDispatcher(config.redis.url)
   ) {}
 
   async run() {
@@ -38,6 +41,7 @@ export class WechatIlinkPoller {
     await Promise.all(accounts.map(async (account) => {
       try { await this.client.notifyStop(account.base_url, this.store.decryptAccountToken(account)); } catch {}
     }));
+    await this.taskDispatcher.close().catch(() => undefined);
   }
 
   private async pollAccount(account: WechatAccountRecord) {
@@ -98,6 +102,11 @@ export class WechatIlinkPoller {
       raw: { accountId: account.id, message }
     });
     if (inbound.duplicate) return;
+
+    if (await this.handleApprovalDecisionMessage(account, peerId, text, owner.chatId)) {
+      await this.store.setAccountHealth(account.id, { messageReceived: true, error: null });
+      return;
+    }
 
     const task = await this.repos.createTask({
       title: `微信待回复：${text.slice(0, 60)}`,
@@ -166,10 +175,101 @@ export class WechatIlinkPoller {
     await this.repos.updateTaskStatus(task.id, 'waiting_approval', `等待批准微信回复：${approval.id}`);
     await this.store.setAccountHealth(account.id, { messageReceived: true, error: null });
   }
+
+  private async handleApprovalDecisionMessage(
+    account: WechatAccountRecord,
+    peerId: string,
+    text: string,
+    chatId: string
+  ) {
+    const parsed = parseApprovalDecision(text);
+    if (!parsed) return false;
+
+    if (!account.scanner_user_id || peerId !== account.scanner_user_id) {
+      await this.repos.audit({
+        actorType: 'wechat',
+        actorId: peerId,
+        action: 'wechat_approval_reply_ignored_non_owner',
+        entityType: 'approval',
+        metadata: { accountId: account.id, text }
+      });
+      return false;
+    }
+
+    let approvalId = parsed.approvalId;
+    if (!approvalId) {
+      const pending = await this.repos.listPendingApprovals(10);
+      if (pending.length === 1) {
+        approvalId = pending[0].id;
+      } else if (pending.length === 0) {
+        await this.sendControlReply(account, peerId, chatId, '当前没有等待你决定的审批。');
+        return true;
+      } else {
+        await this.sendControlReply(account, peerId, chatId, [
+          '当前有多个待审批事项，请回复“批准 apv_xxx”或“拒绝 apv_xxx”：',
+          ...pending.map((item, index) => `${index + 1}. ${item.id}｜${item.task_title ?? item.action_type}`)
+        ].join('\n'));
+        return true;
+      }
+    }
+
+    const result = await decideApproval({
+      repos: this.repos,
+      taskDispatcher: this.taskDispatcher,
+      id: approvalId,
+      status: parsed.status,
+      userId: `wechat:${peerId}`,
+      actorType: 'wechat'
+    });
+    await this.sendControlReply(account, peerId, chatId, result);
+    return true;
+  }
+
+  private async sendControlReply(
+    account: WechatAccountRecord,
+    peerId: string,
+    chatId: string,
+    text: string
+  ) {
+    const contextToken = await this.store.getContextToken(account.id, peerId);
+    if (!contextToken) {
+      await this.repos.audit({
+        actorType: 'system',
+        action: 'clawbot_control_reply_context_missing',
+        metadata: { accountId: account.id, peerId }
+      });
+      return;
+    }
+    const sent = await this.client.sendText({
+      baseUrl: account.base_url,
+      token: this.store.decryptAccountToken(account),
+      to: peerId,
+      contextToken,
+      text
+    });
+    await this.repos.createChannelOutboundMessage({
+      channel: 'wechat',
+      externalMessageId: `${account.id}:${sent.messageId}`,
+      externalChatId: peerId,
+      externalUserId: peerId,
+      chatId,
+      text,
+      raw: { accountId: account.id, source: 'clawbot_approval_control_reply' }
+    });
+  }
 }
 
 function extractText(message: WechatMessage) {
   return (message.item_list ?? []).map((item) => item.text_item?.text ?? item.voice_item?.text ?? '').filter(Boolean).join('\n').trim();
+}
+
+function parseApprovalDecision(text: string) {
+  const match = text.match(/^\s*(?:\/)?(approve|reject|批准|同意|拒绝|驳回)\s*(apv_[\w-]+)?\s*$/i);
+  if (!match) return null;
+  return {
+    status: /^(approve|批准|同意)$/i.test(match[1]) ? 'approved' as const : 'rejected' as const,
+    approvalId: match[2]
+  };
 }
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }

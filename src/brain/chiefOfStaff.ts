@@ -9,6 +9,7 @@ import { isBrowserDashboardRequest, parseBrowserInstruction } from '../browser/b
 import { isCalendarDashboardRequest, parseCalendarInstruction } from '../calendar/calendarIntake.js';
 import { parseCrmLeadInstruction } from '../crm/crmIntake.js';
 import type { Repositories } from '../db/repositories.js';
+import { decideApproval as decideApprovalAction } from '../approvals/decision.js';
 import { isMailDashboardRequest, parseEmailRecordInstruction } from '../email/emailIntake.js';
 import { isFinanceDashboardRequest, parseFinanceInstruction } from '../finance/financeIntake.js';
 import { intakeMessage } from '../intake/intake.js';
@@ -3842,39 +3843,14 @@ export class ChiefOfStaff {
   }
 
   private async decideApproval(id: string, status: 'approved' | 'rejected', userId: string) {
-    const approval = await this.repos.updateApprovalStatus(id, status, userId);
-    if (!approval) return `没有找到审批：${id}`;
-
-    await this.repos.audit({
-      actorType: 'user',
-      actorId: userId,
-      action: `approval_${status}`,
-      entityType: 'approval',
-      entityId: id
+    return decideApprovalAction({
+      repos: this.repos,
+      taskDispatcher: this.taskDispatcher,
+      id,
+      status,
+      userId,
+      actorType: 'user'
     });
-
-    if (!approval.task_id) {
-      return `审批 ${id} 已${status === 'approved' ? '批准' : '拒绝'}。`;
-    }
-
-    if (status === 'approved') {
-      const enqueueResult = await this.enqueueTask(approval.task_id, {
-        taskId: approval.task_id,
-        source: 'approval',
-        approvalId: approval.id,
-        actionType: approval.action_type
-      });
-
-      return [
-        `审批 ${id} 已批准。`,
-        enqueueResult.queued
-          ? `关联任务已进入队列${enqueueResult.jobId ? `：${enqueueResult.jobId}` : '。'}`
-          : '关联任务已批准，但队列暂时不可用；任务已保留为 planned，稍后可重试。'
-      ].join('\n');
-    }
-
-    await this.repos.updateTaskStatus(approval.task_id, 'blocked', 'Approval rejected');
-    return `审批 ${id} 已拒绝。关联任务已阻塞。`;
   }
 
   private createDraftIfUseful(text: string, context: DraftContext) {

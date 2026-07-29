@@ -1544,6 +1544,22 @@ export class Repositories {
     return approval;
   }
 
+  async findPendingPaymentConfirmationApproval(paymentRequestId: string) {
+    const result = await this.pool.query(
+      `
+      SELECT *
+      FROM approvals
+      WHERE status = 'pending'
+        AND action_type = 'payment_received_confirmation'
+        AND payload->>'paymentRequestId' = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [paymentRequestId]
+    );
+    return (result.rows[0] as ApprovalRecord | undefined) ?? null;
+  }
+
   async getApproval(id: string) {
     const result = await this.pool.query('SELECT * FROM approvals WHERE id = $1', [id]);
     return (result.rows[0] as ApprovalRecord | undefined) ?? null;
@@ -2639,6 +2655,51 @@ export class Repositories {
     } finally {
       client.release();
     }
+  }
+
+  async rejectPaymentRequestClaim(id: string, params: {
+    rejectedBy?: string;
+    note?: string;
+  }) {
+    const result = await this.pool.query(
+      `
+      UPDATE payment_requests
+      SET status = 'pending',
+        confirmation_note = COALESCE($2, confirmation_note),
+        metadata = payment_requests.metadata || $3::jsonb,
+        updated_at = now()
+      WHERE id = $1
+        AND status IN ('pending', 'claimed_paid')
+      RETURNING *
+      `,
+      [
+        id,
+        params.note ?? null,
+        JSON.stringify({ rejectedBy: params.rejectedBy ?? null, rejectedAt: new Date().toISOString() })
+      ]
+    );
+    const request = (result.rows[0] as PaymentRequestRecord | undefined) ?? null;
+    if (request) {
+      await this.recordBusinessAnalyticsFact({
+        id: `baf_payment_claim_rejected_${request.id}_${Date.now()}`,
+        grain: 'event',
+        scope: 'revenue',
+        metric_code: 'payment_claim_rejected',
+        metric_name: '收款声明未通过核对',
+        metric_value: 1,
+        amount: Number(request.amount),
+        channel: 'payment_qr',
+        customer: request.customer_name ?? request.payer_name,
+        stage: 'collection',
+        status: 'pending',
+        note: request.title,
+        source_object_type: 'payment_request',
+        source_object_id: request.id,
+        is_demo: false,
+        metadata: { note: params.note ?? null }
+      });
+    }
+    return request;
   }
 
   async cancelPaymentRequest(id: string, note?: string) {

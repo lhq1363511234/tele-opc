@@ -9,6 +9,7 @@ import { BullMqTaskDispatcher } from '../queue/taskQueue.js';
 import { FeishuClient } from './client.js';
 import { FeishuAttachmentIngestor } from './attachmentIngestor.js';
 import type { FeishuMessageEvent } from './types.js';
+import { renderApprovalPrompt } from '../approvals/notifications.js';
 
 export class FeishuGateway {
   private readonly brain: ChiefOfStaff;
@@ -162,26 +163,4 @@ export class FeishuGateway {
     }
     return { command: `/${approved ? 'approve' : 'reject'} ${approvalId}` };
   }
-}
-
-function renderApprovalPrompt(approval: {
-  id: string;
-  task_id: string | null;
-  task_title: string | null;
-  action_type: string;
-  risk_level: string;
-  prompt: string;
-}) {
-  return [
-    '【数字本人暂停，等待你的决定】',
-    `事项：${approval.task_title ?? '独立审批事项'}`,
-    `审批 ID：${approval.id}`,
-    `动作：${approval.action_type}`,
-    `风险：${approval.risk_level}`,
-    `原因：${approval.prompt}`,
-    '',
-    `直接回复：批准 ${approval.id}`,
-    `或回复：拒绝 ${approval.id}`,
-    '如果当前只有这一条待审批，也可以只回复“批准”或“拒绝”。批准后原任务会自动继续。'
-  ].join('\n');
 }

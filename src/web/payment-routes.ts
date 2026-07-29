@@ -5,8 +5,7 @@ import { z } from 'zod';
 import type { AppConfig } from '../config/index.js';
 import type { Repositories } from '../db/repositories.js';
 import type { PaymentQrCodeRecord, PaymentRequestRecord } from '../types.js';
-import { TelegramClient } from '../telegram/client.js';
-import { logger } from '../logger.js';
+import { notifyApprovalChannels } from '../approvals/notifications.js';
 
 const MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024;
 const PAYMENT_UPLOAD_DIR = path.resolve(process.cwd(), 'runtime', 'uploads', 'payment-qr');
@@ -259,16 +258,16 @@ export function registerPaymentRoutes(
       reply.code(409);
       return { ok: false, error: 'payment_request_cancelled', message: '这张收款页已取消，请联系收款方。' };
     }
-    const notification = paymentRequest.status === 'paid'
+    const approvalNotification = paymentRequest.status === 'paid'
       ? { ok: false, skipped: true, reason: 'already_paid' }
-      : await notifyOwnerPaymentClaimed(config, paymentRequest);
+      : await createOrNotifyPaymentConfirmationApproval(config, repos, paymentRequest);
     return {
       ok: true,
       status: paymentRequest.status,
       message: paymentRequest.status === 'paid'
         ? '这笔收款已经确认到账。'
-        : '已通知收款方核对到账，请保留付款截图。',
-      ownerNotified: notification
+        : '已提交到账确认，请等待收款方在飞书或 ClawBot 微信里审核。',
+      approvalNotification
     };
   });
 
@@ -363,37 +362,31 @@ function normalizeOptionalDate(value?: string) {
   return new Date(time).toISOString();
 }
 
-async function notifyOwnerPaymentClaimed(config: AppConfig, paymentRequest: PaymentRequestRecord) {
-  const ownerId = config.telegram.ownerIds[0];
-  if (!ownerId) return { ok: false, skipped: true, reason: 'owner_id_not_configured' };
-  const client = new TelegramClient(config.telegram.botToken);
-  const payUrl = publicUrl(config, `/pay/${encodeURIComponent(paymentRequest.short_code)}`);
-  const consoleUrl = publicUrl(config, '/app/finance?panel=collections');
-  const text = [
-    '💰 有客户声明已付款，请核对到账',
-    '',
-    `收款单：${paymentRequest.title}`,
-    `金额：${paymentRequest.amount} ${paymentRequest.currency}`,
-    paymentRequest.customer_name ? `客户：${paymentRequest.customer_name}` : null,
-    paymentRequest.payer_contact ? `联系方式：${paymentRequest.payer_contact}` : null,
-    paymentRequest.payer_note ? `备注：${paymentRequest.payer_note}` : null,
-    '',
-    '确认到账后，在 Finance 收款台点击「确认已到账」，系统会自动写入收入流水和经营分析。'
-  ].filter(Boolean).join('\n');
-  try {
-    return await client.sendMessage(ownerId, text, {
-      disableWebPagePreview: true,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: '打开收款台', url: consoleUrl },
-          { text: '查看付款页', url: payUrl }
-        ]]
+async function createOrNotifyPaymentConfirmationApproval(
+  config: AppConfig,
+  repos: Repositories,
+  paymentRequest: PaymentRequestRecord
+) {
+  let approval = await repos.findPendingPaymentConfirmationApproval(paymentRequest.id);
+  if (!approval) {
+    approval = await repos.createApproval({
+      actionType: 'payment_received_confirmation',
+      riskLevel: 'high',
+      prompt: '客户声明已付款，请核对微信/银行/收款平台是否真的到账；批准后才写入收入流水。',
+      payload: {
+        paymentRequestId: paymentRequest.id,
+        paymentTitle: paymentRequest.title,
+        amount: paymentRequest.amount,
+        currency: paymentRequest.currency,
+        customerName: paymentRequest.customer_name,
+        payerName: paymentRequest.payer_name,
+        payerContact: paymentRequest.payer_contact,
+        payerNote: paymentRequest.payer_note,
+        paymentUrl: publicUrl(config, `/pay/${encodeURIComponent(paymentRequest.short_code)}`)
       }
     });
-  } catch (error) {
-    logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'payment claim telegram notification failed');
-    return { ok: false, error: 'telegram_notification_failed' };
   }
+  return await notifyApprovalChannels(config, repos, approval);
 }
 
 function publicPaymentHtml(paymentRequest: PaymentRequestRecord, config: AppConfig) {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories.js';
+import { decideApproval } from '../approvals/decision.js';
 
 const leadSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -110,12 +111,19 @@ export function registerBusinessActionRoutes(
         reply.code(400);
         return { ok: false, error: 'invalid_decision', issues: parsed.error.issues };
       }
-      const approval = await repos.updateApprovalStatus(request.params.id, parsed.data.decision);
-      if (!approval) {
+      const existing = await repos.getApproval(request.params.id);
+      if (!existing) {
         reply.code(404);
         return { ok: false, error: 'approval_not_found' };
       }
-      return { ok: true, approval };
+      const result = await decideApproval({
+        repos,
+        id: request.params.id,
+        status: parsed.data.decision === 'approved' ? 'approved' : 'rejected',
+        userId: 'web_console',
+        actorType: 'web_console'
+      });
+      return { ok: true, message: result };
     }
   );
 }
