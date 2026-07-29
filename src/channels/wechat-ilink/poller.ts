@@ -108,6 +108,8 @@ export class WechatIlinkPoller {
       return;
     }
 
+    const capturedMemory = await this.captureOwnerPersonaMemory(account, peerId, text, externalMessageId);
+
     const task = await this.repos.createTask({
       title: `微信待回复：${text.slice(0, 60)}`,
       description: text,
@@ -115,7 +117,13 @@ export class WechatIlinkPoller {
       ownerAgent: 'chief_of_staff',
       riskLevel: 'high',
       status: 'review',
-      planningMetadata: { source: 'wechat_ilink', accountId: account.id, peerId, externalMessageId }
+      planningMetadata: {
+        source: 'wechat_ilink',
+        accountId: account.id,
+        peerId,
+        externalMessageId,
+        capturedMemoryId: capturedMemory?.id ?? null
+      }
     });
 
     let draft: string | null = null;
@@ -174,6 +182,38 @@ export class WechatIlinkPoller {
     });
     await this.repos.updateTaskStatus(task.id, 'waiting_approval', `等待批准微信回复：${approval.id}`);
     await this.store.setAccountHealth(account.id, { messageReceived: true, error: null });
+  }
+
+  private async captureOwnerPersonaMemory(
+    account: WechatAccountRecord,
+    peerId: string,
+    text: string,
+    externalMessageId: string
+  ) {
+    if (!account.scanner_user_id || peerId !== account.scanner_user_id) return null;
+    const parsed = parseOwnerPersonaMemory(text);
+    if (!parsed) return null;
+    const item = await this.repos.createASelfMemoryItem({
+      ...parsed,
+      source: 'wechat_ilink_owner_message',
+      sensitivity: 'private',
+      confidence: 0.95,
+      metadata: {
+        accountId: account.id,
+        peerId,
+        externalMessageId,
+        capturedBy: 'clawbot_owner_memory_capture'
+      }
+    });
+    await this.repos.audit({
+      actorType: 'wechat',
+      actorId: peerId,
+      action: 'a_self_memory_captured_from_clawbot',
+      entityType: 'a_self_memory_item',
+      entityId: item.id,
+      metadata: { accountId: account.id, externalMessageId, title: item.title }
+    });
+    return item;
   }
 
   private async handleApprovalDecisionMessage(
@@ -271,6 +311,53 @@ function parseApprovalDecision(text: string) {
     status: /^(approve|批准|同意)$/i.test(match[1]) ? 'approved' as const : 'rejected' as const,
     approvalId: match[2]
   };
+}
+
+function parseOwnerPersonaMemory(text: string) {
+  const normalized = text.trim();
+  const botNameMatch = normalized.match(
+    /(?:给你取个名字[，,。\s]*)?(?:你以后(?:就)?叫|以后(?:你)?(?:就)?叫|以后称呼你为|你的名字(?:叫|是))\s*([^\s，。,.!?！？]{1,24})/
+  );
+  if (botNameMatch?.[1]) {
+    const name = botNameMatch[1].replace(/[“”"'`]/g, '').trim();
+    if (name) {
+      return {
+        category: 'preference',
+        title: `数字本人名称设定：${name}`,
+        content: `用户明确给数字本人 / ClawBot 取名为“${name}”。当用户问“你叫什么”“你叫啥”或需要自称时，应回答“${name}”。`,
+        why: '这是用户在微信里主动设定的称呼偏好，属于数字人格的长期记忆。',
+        tags: ['微信', '称呼', '数字本人', '偏好']
+      };
+    }
+  }
+
+  const ownerNameMatch = normalized.match(/(?:我叫|我的名字(?:叫|是))\s*([^\s，。,.!?！？]{1,24})/);
+  if (ownerNameMatch?.[1]) {
+    const name = ownerNameMatch[1].replace(/[“”"'`]/g, '').trim();
+    if (name) {
+      return {
+        category: 'preference',
+        title: `用户名称设定：${name}`,
+        content: `用户说明自己的名字 / 称呼是“${name}”。后续称呼用户时优先使用这个名字，除非用户重新指定。`,
+        why: '这是用户主动提供的自我称呼信息。',
+        tags: ['微信', '称呼', '用户信息']
+      };
+    }
+  }
+
+  const rememberMatch = normalized.match(/^(?:请)?记住[：:，,\s]+([\s\S]{2,12000})$/i);
+  if (rememberMatch?.[1]) {
+    const content = rememberMatch[1].trim();
+    return {
+      category: /语气|风格|叫|名字|称呼|偏好|喜欢|不要|以后|默认/.test(content) ? 'preference' : 'conversation_evidence',
+      title: `微信明确记忆：${content.slice(0, 48)}`,
+      content,
+      why: '用户用“记住”明确要求数字本人长期保存。',
+      tags: ['微信', '明确记忆']
+    };
+  }
+
+  return null;
 }
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
