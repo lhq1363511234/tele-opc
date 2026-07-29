@@ -36,7 +36,8 @@
     "analytics:seed-sync": "npm run analytics:seed && npm run analytics:sync",
     "analytics:seed-fast-sync": "tsx scripts/fast_seed_analytics_to_feishu.ts",
     "wechat:worker": "tsx src/channels/wechat-ilink/worker.ts",
-    "wechat:worker:prod": "node dist/src/channels/wechat-ilink/worker.js"
+    "wechat:worker:prod": "node dist/src/channels/wechat-ilink/worker.js",
+    "persona:distill-wechat": "npm run build:server && node scripts/distill_self_from_wechat_corpus.mjs --apply"
   },
   "engines": {
     "node": ">=20"
