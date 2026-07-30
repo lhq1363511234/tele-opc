@@ -388,6 +388,7 @@ export class Repositories {
         messages.id,
         messages.direction,
         messages.text,
+        messages.raw,
         messages.created_at,
         telegram_chats.type AS chat_type,
         telegram_chats.title AS chat_title,
@@ -406,6 +407,7 @@ export class Repositories {
       id: string;
       direction: string;
       text: string | null;
+      raw: Record<string, unknown> | null;
       created_at: string;
       chat_type: string | null;
       chat_title: string | null;

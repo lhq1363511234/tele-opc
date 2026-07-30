@@ -63,6 +63,7 @@ const DEFAULT_NAV_IDS: RouteId[] = [
   'agents',
   'tasks',
   'mini',
+  'deliverables',
   'crm',
   'mail',
   'finance',

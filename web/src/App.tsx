@@ -35,7 +35,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { FormEvent, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { AgentNetwork } from './components/AgentNetwork';
 import { PaperclipGovernance } from './components/PaperclipGovernance';
@@ -83,37 +83,63 @@ import type {
   WebCommandResponse
 } from './types';
 
-const navItems: Array<{ id: RouteId; label: string; icon: typeof LayoutDashboard }> = [
-  { id: 'aself', label: 'A- 数字自我', icon: Brain },
-  { id: 'paperclip', label: 'Paperclip 治理', icon: Building2 },
-  { id: 'mission', label: '执行监控', icon: LayoutDashboard },
-  { id: 'tasks', label: '执行任务', icon: Workflow },
-  { id: 'agents', label: 'Agents', icon: Bot },
-  { id: 'ops', label: '经营分析', icon: BarChart3 },
-  { id: 'crm', label: 'CRM', icon: Users },
-  { id: 'mail', label: 'Mail', icon: Mail },
-  { id: 'finance', label: 'Finance', icon: CircleDollarSign },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'browser', label: 'Browser', icon: Eye },
-  { id: 'mini', label: 'Mini App', icon: Sparkles },
-  { id: 'dependencies', label: 'Dependencies', icon: Settings },
-  { id: 'architecture', label: '系统架构', icon: Network },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'debug', label: 'Debug', icon: Info }
+type NavItem = {
+  id: RouteId;
+  label: string;
+  icon: typeof LayoutDashboard;
+  description: string;
+};
+
+const navItems: NavItem[] = [
+  { id: 'mission', label: '经营驾驶舱', icon: LayoutDashboard, description: '今日优先级、审批、风险与执行状态' },
+  { id: 'aself', label: '数字本人', icon: Brain, description: '人格、记忆、决策与关系' },
+  { id: 'tasks', label: '任务与审批', icon: Workflow, description: '任务进度、审批与执行轨迹' },
+  { id: 'crm', label: '客户与成交', icon: Users, description: '线索、机会、跟进与客户关系' },
+  { id: 'mail', label: '邮件与触达', icon: Mail, description: '草稿、Campaign 与外部沟通' },
+  { id: 'finance', label: '财务与收款', icon: CircleDollarSign, description: '现金流、发票、订阅与收款' },
+  { id: 'calendar', label: '日程与会议', icon: CalendarDays, description: '日程、准备与时间安排' },
+  { id: 'ops', label: '经营分析', icon: BarChart3, description: '公司指标、增长信号与风险' },
+  { id: 'mini', label: '工作台', icon: Sparkles, description: '资料导入、PPT、财务与知识处理' },
+  { id: 'deliverables', label: '交付物库', icon: Eye, description: 'PPT、文档、网页与任务成果' },
+  { id: 'browser', label: '研究与浏览', icon: Search, description: '公开资料、证据与网页任务' },
+  { id: 'agents', label: 'Agent 与轨迹', icon: Bot, description: '岗位、工具调用与运行记录' },
+  { id: 'paperclip', label: '公司治理', icon: Building2, description: '目标、项目、Issue 与协同' },
+  { id: 'dependencies', label: '集成状态', icon: Network, description: '外部系统、凭证与依赖健康' },
+  { id: 'settings', label: '设置', icon: Settings, description: '模型、权限和偏好配置' },
+  { id: 'architecture', label: '系统地图', icon: Network, description: '模块、数据与故障定位' },
+  { id: 'debug', label: '诊断工具', icon: Info, description: 'Telegram 与访问问题排查' }
 ];
 
-const miniAppEntries: Array<{ kind: MiniPanelKind; label: string; description: string }> = [
-  { kind: 'ppt', label: 'PPT 引导', description: '逐步确认主题、受众、用途、页数、风格和素材' },
-  { kind: 'crm', label: 'CRM 导入', description: '线索、客户名单、行业名单和跟进目标' },
-  { kind: 'mail', label: '邮件编辑', description: '客户邮件、跟进邮件和 Campaign 草稿' },
-  { kind: 'finance', label: '财务动作', description: '记账、发票、付款准备和审批提示' },
-  { kind: 'financeImport', label: '财务导入', description: '账单、流水、订阅和发票数据整理' },
-  { kind: 'agent', label: 'Agent 设置', description: '模型、权限策略、Skill 偏好和知识库' },
-  { kind: 'knowledge', label: '知识库导入', description: '公司资料、报价规则和行业知识沉淀' },
-  { kind: 'screenshot', label: '截图分析', description: '图片、页面截图和视觉资料分析' },
-  { kind: 'voice', label: '语音转任务', description: '把语音内容整理成可执行任务' },
-  { kind: 'artifact', label: '任务资料', description: '把补充材料挂到任务并整理引用方式' }
+const navGroups: Array<{ title: string; hint: string; ids: RouteId[] }> = [
+  { title: '核心指挥', hint: '判断、决策、推进', ids: ['mission', 'aself', 'tasks'] },
+  { title: '经营闭环', hint: '获客、成交、收款', ids: ['crm', 'mail', 'finance', 'calendar', 'ops'] },
+  { title: '交付与资料', hint: '输入、生成、沉淀', ids: ['mini', 'deliverables', 'browser'] },
+  { title: '系统与集成', hint: '治理、设置、诊断', ids: ['agents', 'paperclip', 'dependencies', 'settings', 'architecture', 'debug'] }
 ];
+
+const navItemById = new Map(navItems.map((item) => [item.id, item]));
+
+type MiniAppEntry = {
+  kind: MiniPanelKind;
+  label: string;
+  description: string;
+  group: '增长与成交' | '经营与资料' | '交付与创作' | '系统配置';
+};
+
+const miniAppEntries: MiniAppEntry[] = [
+  { kind: 'crm', label: 'CRM 导入', description: '线索、客户名单、行业名单和跟进目标', group: '增长与成交' },
+  { kind: 'mail', label: '邮件编辑', description: '客户邮件、跟进邮件和 Campaign 草稿', group: '增长与成交' },
+  { kind: 'finance', label: '财务动作', description: '记账、发票、付款准备和审批提示', group: '经营与资料' },
+  { kind: 'financeImport', label: '财务导入', description: '账单、流水、订阅和发票数据整理', group: '经营与资料' },
+  { kind: 'knowledge', label: '知识库导入', description: '公司资料、报价规则、聊天记录和行业知识沉淀', group: '经营与资料' },
+  { kind: 'artifact', label: '任务资料', description: '把补充材料挂到任务并整理引用方式', group: '经营与资料' },
+  { kind: 'ppt', label: 'PPT 引导', description: '逐步确认主题、受众、用途、页数、风格和素材', group: '交付与创作' },
+  { kind: 'screenshot', label: '截图分析', description: '图片、页面截图和视觉资料分析', group: '交付与创作' },
+  { kind: 'voice', label: '语音转任务', description: '把语音内容整理成可执行任务', group: '交付与创作' },
+  { kind: 'agent', label: 'Agent 设置', description: '模型、权限策略、Skill 偏好和知识库', group: '系统配置' }
+];
+
+const miniAppGroups: MiniAppEntry['group'][] = ['增长与成交', '经营与资料', '交付与创作', '系统配置'];
 
 export default function App() {
   useTelegramMiniApp();
@@ -455,6 +481,9 @@ function BootScreen() {
 function Shell({ appName }: { appName: string }) {
   const [route, setRoute] = useRoute();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarCloseRef = useRef<HTMLButtonElement | null>(null);
+  const sidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const sidebarWasOpenRef = useRef(false);
   const queryClient = useQueryClient();
   const overview = useQuery({
     queryKey: ['overview'],
@@ -469,9 +498,17 @@ function Shell({ appName }: { appName: string }) {
     void queryClient.invalidateQueries();
   }
 
+  function openSidebar() {
+    setSidebarOpen(true);
+  }
+
+  function closeSidebar() {
+    setSidebarOpen(false);
+  }
+
   function navigate(nextRoute: RouteId) {
     setRoute(nextRoute);
-    setSidebarOpen(false);
+    closeSidebar();
   }
 
   const activeNav = navItems.find((item) => item.id === route) ?? navItems[0];
@@ -493,21 +530,37 @@ function Shell({ appName }: { appName: string }) {
         event.preventDefault();
         document.getElementById('chief-command-input')?.focus();
       }
-      if (event.key === 'Escape') setSidebarOpen(false);
+      if (event.key === 'Escape' && sidebarOpen) {
+        event.preventDefault();
+        closeSidebar();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      sidebarWasOpenRef.current = true;
+      window.requestAnimationFrame(() => sidebarCloseRef.current?.focus());
+      return;
+    }
+    if (!sidebarWasOpenRef.current) return;
+    sidebarWasOpenRef.current = false;
+    const trigger = sidebarTriggerRef.current;
+    if (trigger && document.activeElement !== trigger) trigger.focus();
+  }, [sidebarOpen]);
 
   return (
     <div className={`app-shell ${sidebarOpen ? 'sidebar-is-open' : ''}`}>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
       <button
         type="button"
         className="sidebar-backdrop"
         aria-label="关闭导航"
-        onClick={() => setSidebarOpen(false)}
+        onClick={closeSidebar}
       />
-      <aside className="sidebar" aria-label="主导航">
+      <aside id="main-navigation" className="sidebar" aria-label="主导航">
         <div className="brand">
           <div className="brand-mark">
             <Network size={21} />
@@ -516,7 +569,7 @@ function Shell({ appName }: { appName: string }) {
             <strong>{appName}</strong>
             <span>Operating Console</span>
           </div>
-          <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="关闭导航">
+          <button ref={sidebarCloseRef} type="button" className="sidebar-close" onClick={closeSidebar} aria-label="关闭导航">
             <X size={18} />
           </button>
         </div>
@@ -528,9 +581,16 @@ function Shell({ appName }: { appName: string }) {
           </div>
         </div>
         <nav className="nav-list">
-          <NavGroup title="Command" items={navItems.slice(0, 5)} route={route} onRoute={navigate} />
-          <NavGroup title="Business" items={navItems.slice(5, 11)} route={route} onRoute={navigate} />
-          <NavGroup title="System" items={navItems.slice(11)} route={route} onRoute={navigate} />
+          {navGroups.map((group) => (
+            <NavGroup
+              key={group.title}
+              title={group.title}
+              hint={group.hint}
+              items={group.ids.map((id) => navItemById.get(id)).filter((item): item is NavItem => Boolean(item))}
+              route={route}
+              onRoute={navigate}
+            />
+          ))}
         </nav>
         <div className="sidebar-footer">
           <HealthPill label="DB" ok={overview.data?.health.database} />
@@ -539,10 +599,18 @@ function Shell({ appName }: { appName: string }) {
         </div>
       </aside>
 
-      <main className="main-surface">
+      <main id="main-content" className="main-surface">
         <header className="topbar">
           <div className="topbar-title">
-            <button type="button" className="mobile-menu-button" onClick={() => setSidebarOpen(true)} aria-label="打开导航">
+            <button
+              ref={sidebarTriggerRef}
+              type="button"
+              className="mobile-menu-button"
+              onClick={openSidebar}
+              aria-label="打开导航"
+              aria-controls="main-navigation"
+              aria-expanded={sidebarOpen}
+            >
               <Menu size={20} />
             </button>
             <div>
@@ -585,7 +653,7 @@ function Shell({ appName }: { appName: string }) {
             transition={{ duration: 0.18 }}
             className="route-surface"
           >
-            <RouteView route={route} overview={overview} agents={agents.data?.agents ?? []} />
+            <RouteView route={route} overview={overview} agents={agents.data?.agents ?? []} onNavigate={navigate} />
           </motion.section>
         </AnimatePresence>
       </main>
@@ -595,24 +663,37 @@ function Shell({ appName }: { appName: string }) {
 
 function NavGroup({
   title,
+  hint,
   items,
   route,
   onRoute
 }: {
   title: string;
-  items: typeof navItems;
+  hint: string;
+  items: NavItem[];
   route: RouteId;
   onRoute: (route: RouteId) => void;
 }) {
   return (
     <div className="nav-group">
-      <span className="nav-section-label">{title}</span>
+      <div className="nav-section-heading">
+        <span className="nav-section-label">{title}</span>
+        <small>{hint}</small>
+      </div>
       {items.map((item) => {
         const Icon = item.icon;
         return (
-          <button key={item.id} className={route === item.id ? 'active' : ''} onClick={() => onRoute(item.id)}>
+          <button
+            key={item.id}
+            className={route === item.id ? 'active' : ''}
+            onClick={() => onRoute(item.id)}
+            title={item.description}
+          >
             <Icon size={17} />
-            <span>{item.label}</span>
+            <span className="nav-item-copy">
+              <strong>{item.label}</strong>
+              <small>{item.description}</small>
+            </span>
           </button>
         );
       })}
@@ -697,11 +778,13 @@ const financeQuickEntry: QuickEntryConfig = {
 function RouteView({
   route,
   overview,
-  agents
+  agents,
+  onNavigate
 }: {
   route: RouteId;
   overview: UseQueryResult<OverviewResponse>;
   agents: AgentDefinition[];
+  onNavigate: (route: RouteId) => void;
 }) {
   if (overview.isLoading) return <LoadingPanel />;
   if (overview.isError) return <ErrorPanel error={overview.error} />;
@@ -709,9 +792,9 @@ function RouteView({
 
   const overviewData = overview.data;
 
-  switch (route) {
+    switch (route) {
     case 'mission':
-      return <MissionControl overview={overviewData} agents={agents} />;
+      return <MissionControl overview={overviewData} agents={agents} onNavigate={onNavigate} />;
     case 'aself':
       return <ASelfConsole />;
     case 'paperclip':
@@ -768,11 +851,19 @@ function RouteView({
     case 'deliverables':
       return <DeliverablePage />;
     default:
-      return <MissionControl overview={overviewData} agents={agents} />;
+      return <MissionControl overview={overviewData} agents={agents} onNavigate={onNavigate} />;
   }
 }
 
-function MissionControl({ overview, agents }: { overview: OverviewResponse; agents: AgentDefinition[] }) {
+function MissionControl({
+  overview,
+  agents,
+  onNavigate
+}: {
+  overview: OverviewResponse;
+  agents: AgentDefinition[];
+  onNavigate: (route: RouteId) => void;
+}) {
   const metrics = [
     {
       label: '任务总数',
@@ -806,6 +897,8 @@ function MissionControl({ overview, agents }: { overview: OverviewResponse; agen
 
   return (
     <div className="mission-grid">
+      <WorkspaceLauncher overview={overview} onNavigate={onNavigate} />
+
       <TodayCockpit overview={overview} />
 
       <section className="metric-grid mission-metrics compact-metrics">
@@ -842,11 +935,11 @@ function MissionControl({ overview, agents }: { overview: OverviewResponse; agen
       </section>
 
       <section className="panel">
-        <PanelHeader title="最近对话" hint="Telegram / Web Console" />
+        <PanelHeader title="统一收件箱" hint="Telegram / 飞书 / Web 的最新指令" />
         <SimpleList
           items={overview.recentMessages}
           primary={(item) => truncateText(item.text ?? '空消息', 180)}
-          meta={(item) => `${item.direction} · ${formatTime(item.created_at)}`}
+          meta={(item) => `${messageSourceLabel(item)} · ${item.direction} · ${formatTime(item.created_at)}`}
         />
       </section>
 
@@ -860,6 +953,80 @@ function MissionControl({ overview, agents }: { overview: OverviewResponse; agen
       </section>
     </div>
   );
+}
+
+function WorkspaceLauncher({
+  overview,
+  onNavigate
+}: {
+  overview: OverviewResponse;
+  onNavigate: (route: RouteId) => void;
+}) {
+  const items = [
+    {
+      icon: Brain,
+      title: '交给数字本人判断',
+      description: '用一句自然语言交代目标；系统自行判断任务、工具、审批与结果去向。',
+      action: '下达目标',
+      onClick: () => focusChiefCommand()
+    },
+    {
+      icon: Sparkles,
+      title: '上传资料或处理文件',
+      description: '聊天、财务表、客户资料、报价规则先进入工作台，再由系统判断归档与用途。',
+      action: '打开工作台',
+      onClick: () => onNavigate('mini')
+    },
+    {
+      icon: Users,
+      title: '推进客户与成交',
+      description: `${countItems(overview.dashboards.crm.hotLeads) + countItems(overview.dashboards.crm.openOpportunities)} 个当前销售机会可查看或推进。`,
+      action: '查看客户',
+      onClick: () => onNavigate('crm')
+    },
+    {
+      icon: CircleDollarSign,
+      title: '看现金流与收款',
+      description: `本月净现金流 ${formatMoney(Number(overview.dashboards.finance.netCashflow ?? 0), String(overview.dashboards.finance.currency ?? 'CNY'))}；财务动作保持审批边界。`,
+      action: '打开财务',
+      onClick: () => onNavigate('finance')
+    }
+  ] as const;
+
+  return (
+    <section className="workspace-launcher" aria-labelledby="workspace-launcher-title">
+      <div className="workspace-launcher-heading">
+        <div>
+          <span className="eyebrow">UNIFIED WORKSPACE</span>
+          <h2 id="workspace-launcher-title">今天从这里开始，而不是先找功能</h2>
+        </div>
+        <p>入口统一，业务再分流：数字本人负责理解，模块负责落地。</p>
+      </div>
+      <div className="workspace-launcher-grid">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button key={item.title} type="button" className="workspace-launcher-item" onClick={item.onClick}>
+              <span className="workspace-launcher-icon"><Icon size={19} /></span>
+              <span className="workspace-launcher-copy">
+                <strong>{item.title}</strong>
+                <small>{item.description}</small>
+              </span>
+              <span className="workspace-launcher-action">{item.action}<ArrowRight size={15} /></span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function messageSourceLabel(item: AnyRecord) {
+  const channel = String(item?.raw?.channel ?? '').toLowerCase();
+  if (channel === 'feishu') return '飞书';
+  if (channel === 'wechat') return '微信';
+  if (channel === 'telegram') return 'Telegram';
+  return item.chat_title ? String(item.chat_title) : '控制台';
 }
 
 function buildTodayDigest(overview: OverviewResponse): { headline: string; reason: string; tone: string } {
@@ -1225,6 +1392,12 @@ function prefillChiefCommand(text: string, autoRun = false) {
   window.dispatchEvent(new CustomEvent('tele-opc:prefill-command', { detail: { text, autoRun } }));
 }
 
+function focusChiefCommand() {
+  const input = document.getElementById('chief-command-input');
+  input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.requestAnimationFrame(() => input?.focus());
+}
+
 function OperationsStrip({ overview }: { overview: OverviewResponse }) {
   const items = [
     ['CRM', countItems(overview.dashboards.crm.hotLeads) + countItems(overview.dashboards.crm.openOpportunities), 'leads + opps'],
@@ -1387,12 +1560,12 @@ function MiniAppPage() {
     <div className="mini-app-route">
       <section className="panel mini-app-hero">
         <div>
-          <span className="eyebrow">Telegram Mini App</span>
+          <span className="eyebrow">WORKSPACE / {activeEntry.group}</span>
           <h2>{activeEntry.label}</h2>
           <p>{activeEntry.description}</p>
         </div>
         <div className="mini-app-switcher">
-          {miniAppEntries.slice(0, 6).map((entry) => (
+          {miniAppEntries.filter((entry) => entry.group === activeEntry.group).map((entry) => (
             <a key={entry.kind} className={entry.kind === activePanel ? 'active' : ''} href={miniPanelHref(entry.kind)}>
               {entry.label}
             </a>
@@ -1401,13 +1574,24 @@ function MiniAppPage() {
       </section>
       <MiniAppActionPanel kind={activePanel} />
       <section className="panel mini-app-directory">
-        <PanelHeader title="更多 Mini App 面板" hint="/app/mini/:panel" />
-        <div className="mini-app-entry-grid">
-          {miniAppEntries.map((entry) => (
-            <a key={entry.kind} href={miniPanelHref(entry.kind)}>
-              <strong>{entry.label}</strong>
-              <span>{entry.description}</span>
-            </a>
+        <PanelHeader title="按业务目标选择工作台" hint="不是工具目录，而是你要完成什么" />
+        <div className="mini-app-directory-groups">
+          {miniAppGroups.map((group) => (
+            <section key={group} className="mini-app-directory-group">
+              <div className="mini-app-group-heading">
+                <h3>{group}</h3>
+                <span>{miniAppEntries.filter((entry) => entry.group === group).length} 个入口</span>
+              </div>
+              <div className="mini-app-entry-grid">
+                {miniAppEntries.filter((entry) => entry.group === group).map((entry) => (
+                  <a key={entry.kind} href={miniPanelHref(entry.kind)}>
+                    <strong>{entry.label}</strong>
+                    <span>{entry.description}</span>
+                    <small>打开面板 <ArrowRight size={13} /></small>
+                  </a>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       </section>
