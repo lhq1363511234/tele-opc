@@ -7,6 +7,7 @@ import { Repositories } from './db/repositories.js';
 import { CampaignEmailSender } from './email/campaignEmailSender.js';
 import { deckInputFromPublicBrief, slideDeckSpecFromAgentContent } from './deliverables/slideDeckSpec.js';
 import { AgentRunner } from './ai/agentRunner.js';
+import { ApprovalService } from './approvals/service.js';
 import { systemPromptForAgent } from './ai/agentPrompts.js';
 import { buildCapabilityTools } from './ai/capabilityTools.js';
 import { buildExternalActionTools, runApprovedAction } from './ai/externalActionTools.js';
@@ -33,11 +34,12 @@ const repos = new Repositories(pool);
 const browserRunner = new LocalBrowserRunner(repos);
 const campaignEmailSender = new CampaignEmailSender(repos);
 const taskDispatcher = new BullMqTaskDispatcher(config.redis.url);
+const approvalService = new ApprovalService(config, repos, taskDispatcher);
 const paperclipBridge = new PaperclipBridge(config, repos, taskDispatcher);
 const telegramClient = new TelegramClient(config.telegram.botToken);
 const feishuClient = new FeishuClient(config.feishu.cliPath);
 const modelProvider = createModelProviderFromConfig(config);
-const contentAgentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
+const contentAgentRunner = modelProvider ? new AgentRunner(modelProvider, repos, approvalService) : null;
 const feishuMirror = buildFeishuMirror({
   publicBaseUrl: config.app.publicBaseUrl,
   appId: config.feishu.appId || undefined,

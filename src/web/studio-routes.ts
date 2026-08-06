@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories.js';
 import type { AppConfig } from '../config/index.js';
+import { ApprovalService } from '../approvals/service.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
 import { discoverLeads } from '../prospecting/leadDiscovery.js';
 import { parseSpreadsheet, tablesToText } from '../finance/statementParser.js';
@@ -321,6 +322,7 @@ export function registerStudioRoutes(
   allowWebConsoleAccess: any
 ) {
   const opts = { preHandler: allowWebConsoleAccess };
+  const approvalService = new ApprovalService(config, repos);
 
   // ---- PPT: generate real deck ----
   app.get('/api/web/studio/deck/themes', opts, async () => ({
@@ -824,7 +826,7 @@ export function registerStudioRoutes(
     const { currency, proposal } = parsed.data;
 
     if (proposal.kind === 'payment' || proposal.requiresApproval) {
-      const approval = await repos.createApproval({
+      const { approval } = await approvalService.request({
         actionType: proposal.kind === 'payment' ? 'payment' : 'financial_commitment',
         riskLevel: 'high',
         prompt: `${proposal.description}（${proposal.counterparty ?? proposal.vendorName ?? proposal.customerName ?? '未指定对象'} ${proposal.amount} ${currency}）`,

@@ -1588,6 +1588,7 @@ export class Repositories {
       UPDATE approvals
       SET status = $2, decided_by_user_id = $3, decided_at = now(), updated_at = now()
       WHERE id = $1
+        AND status = 'pending'
       RETURNING *
       `,
       [id, status, decidedByUserId ?? null]

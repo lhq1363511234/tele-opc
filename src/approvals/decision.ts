@@ -32,7 +32,13 @@ export async function decideApproval(params: {
   }
 
   const approval = await params.repos.updateApprovalStatus(params.id, params.status, params.userId);
-  if (!approval) return `没有找到审批：${params.id}`;
+  if (!approval) {
+    const current = params.repos.getApproval ? await params.repos.getApproval(params.id) : null;
+    if (current && current.status !== 'pending') {
+      return `审批 ${params.id} 已经是 ${statusLabel(current.status)}，不会重复执行。`;
+    }
+    return `没有找到审批：${params.id}`;
+  }
 
   await params.repos.audit({
     actorType: params.actorType ?? 'user',

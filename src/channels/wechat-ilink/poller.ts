@@ -6,12 +6,13 @@ import { WechatReplyDraftService } from './draft-service.js';
 import { WechatIlinkStore } from './store.js';
 import type { WechatAccountRecord, WechatMessage } from './types.js';
 import { BullMqTaskDispatcher } from '../../queue/taskQueue.js';
-import { decideApproval } from '../../approvals/decision.js';
+import { ApprovalService } from '../../approvals/service.js';
 
 export class WechatIlinkPoller {
   private readonly controllers = new Map<string, AbortController>();
   private readonly startedAccounts = new Set<string>();
   private stopping = false;
+  private readonly approvalService: ApprovalService;
 
   constructor(
     private readonly config: AppConfig,
@@ -20,7 +21,9 @@ export class WechatIlinkPoller {
     private readonly client = new WechatIlinkClient(),
     private readonly drafts = new WechatReplyDraftService(config, repos),
     private readonly taskDispatcher = new BullMqTaskDispatcher(config.redis.url)
-  ) {}
+  ) {
+    this.approvalService = new ApprovalService(config, repos, this.taskDispatcher);
+  }
 
   async run() {
     this.stopping = false;
@@ -173,7 +176,7 @@ export class WechatIlinkPoller {
       return;
     }
 
-    const approval = await this.repos.createApproval({
+    const { approval } = await this.approvalService.request({
       taskId: task.id,
       actionType: 'wechat_send_message',
       riskLevel: 'high',
@@ -254,9 +257,7 @@ export class WechatIlinkPoller {
       }
     }
 
-    const result = await decideApproval({
-      repos: this.repos,
-      taskDispatcher: this.taskDispatcher,
+    const result = await this.approvalService.decide({
       id: approvalId,
       status: parsed.status,
       userId: ownerUserId,

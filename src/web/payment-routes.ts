@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AppConfig } from '../config/index.js';
 import type { Repositories } from '../db/repositories.js';
 import type { PaymentQrCodeRecord, PaymentRequestRecord } from '../types.js';
-import { notifyApprovalChannels } from '../approvals/notifications.js';
+import { ApprovalService } from '../approvals/service.js';
 
 const MAX_QR_IMAGE_BYTES = 5 * 1024 * 1024;
 const PAYMENT_UPLOAD_DIR = path.resolve(process.cwd(), 'runtime', 'uploads', 'payment-qr');
@@ -47,6 +47,8 @@ export function registerPaymentRoutes(
   repos: Repositories,
   allowWebConsoleAccess: any
 ) {
+  const approvalService = new ApprovalService(config, repos);
+
   app.get('/api/web/payments', { preHandler: allowWebConsoleAccess }, async () => {
     const dashboard = await repos.getPaymentCollectionDashboard();
     return {
@@ -260,7 +262,7 @@ export function registerPaymentRoutes(
     }
     const approvalNotification = paymentRequest.status === 'paid'
       ? { ok: false, skipped: true, reason: 'already_paid' }
-      : await createOrNotifyPaymentConfirmationApproval(config, repos, paymentRequest);
+      : await createOrNotifyPaymentConfirmationApproval(approvalService, repos, paymentRequest, config);
     return {
       ok: true,
       status: paymentRequest.status,
@@ -363,13 +365,14 @@ function normalizeOptionalDate(value?: string) {
 }
 
 async function createOrNotifyPaymentConfirmationApproval(
-  config: AppConfig,
+  approvalService: ApprovalService,
   repos: Repositories,
-  paymentRequest: PaymentRequestRecord
+  paymentRequest: PaymentRequestRecord,
+  config: AppConfig
 ) {
   let approval = await repos.findPendingPaymentConfirmationApproval(paymentRequest.id);
   if (!approval) {
-    approval = await repos.createApproval({
+    const result = await approvalService.request({
       actionType: 'payment_received_confirmation',
       riskLevel: 'high',
       prompt: '客户声明已付款，请核对微信/银行/收款平台是否真的到账；批准后才写入收入流水。',
@@ -385,8 +388,9 @@ async function createOrNotifyPaymentConfirmationApproval(
         paymentUrl: publicUrl(config, `/pay/${encodeURIComponent(paymentRequest.short_code)}`)
       }
     });
+    return result.notifications;
   }
-  return await notifyApprovalChannels(config, repos, approval);
+  return await approvalService.notify(approval);
 }
 
 function publicPaymentHtml(paymentRequest: PaymentRequestRecord, config: AppConfig) {

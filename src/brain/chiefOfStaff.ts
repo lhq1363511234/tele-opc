@@ -10,6 +10,7 @@ import { isCalendarDashboardRequest, parseCalendarInstruction } from '../calenda
 import { parseCrmLeadInstruction } from '../crm/crmIntake.js';
 import type { Repositories } from '../db/repositories.js';
 import { decideApproval as decideApprovalAction } from '../approvals/decision.js';
+import type { ApprovalService } from '../approvals/service.js';
 import { isMailDashboardRequest, parseEmailRecordInstruction } from '../email/emailIntake.js';
 import { isFinanceDashboardRequest, parseFinanceInstruction } from '../finance/financeIntake.js';
 import { intakeMessage } from '../intake/intake.js';
@@ -255,7 +256,8 @@ export class ChiefOfStaff {
     private readonly healthChecker: IntegrationHealthChecker = new LocalIntegrationHealthChecker(repos),
     private readonly evaluationRunner: EvaluationRunner = new LocalEvaluationRunner(repos),
     private readonly agentRunner: AgentRunner | null = null,
-    private readonly prospectingConnector: ProspectingSourceConnector = new PublicSourceProspectingConnector()
+    private readonly prospectingConnector: ProspectingSourceConnector = new PublicSourceProspectingConnector(),
+    private readonly approvalService: ApprovalService | null = null
   ) {}
 
   /** Feishu credentials for external action tools, read once from env. */
@@ -660,7 +662,7 @@ export class ChiefOfStaff {
       let approvalId: string | undefined;
       if (approvalTarget) {
         const approvalAction = approvalTarget.metadata.approvalAction as string;
-        const approval = await this.repos.createApproval({
+        const approval = await this.requestApproval({
           actionType: approvalAction,
           riskLevel: 'high',
           prompt: `浏览器动作等待审批：${approvalTarget.action_type}`,
@@ -677,16 +679,6 @@ export class ChiefOfStaff {
         });
         approvalId = approval.id;
         await this.repos.updateBrowserBlockedActionApproval(approvalTarget.id, approval.id);
-        await this.repos.audit({
-          actorType: 'system',
-          action: 'approval_requested',
-          entityType: 'approval',
-          entityId: approval.id,
-          metadata: {
-            runId: created.run.id,
-            blockedActionId: approvalTarget.id
-          }
-        });
       }
 
       await this.repos.audit({
@@ -807,7 +799,7 @@ export class ChiefOfStaff {
     }
 
     if (requiresApproval(intake)) {
-      const approval = await this.repos.createApproval({
+      const approval = await this.requestApproval({
         taskId: task.id,
         actionType: intake.requiredApprovalAction ?? 'external_action',
         riskLevel: 'high',
@@ -820,14 +812,6 @@ export class ChiefOfStaff {
           reasons: intake.reasons
         }
       });
-      await this.repos.audit({
-        actorType: 'system',
-        action: 'approval_requested',
-        entityType: 'approval',
-        entityId: approval.id,
-        metadata: { taskId: task.id }
-      });
-
       return [
         `已创建任务：${task.id}`,
         `状态：waiting_approval`,
@@ -905,7 +889,7 @@ export class ChiefOfStaff {
       previousTask = subtask;
 
       if (stepRequiresApproval) {
-        const approval = await this.repos.createApproval({
+        const approval = await this.requestApproval({
           taskId: subtask.id,
           actionType: stepIntake.requiredApprovalAction ?? 'external_action',
           riskLevel: 'high',
@@ -3923,7 +3907,38 @@ export class ChiefOfStaff {
     return lines.join('\n');
   }
 
+  private async requestApproval(
+    params: Parameters<ChiefOfStaffRepositories['createApproval']>[0],
+    metadata?: Record<string, unknown>
+  ) {
+    if (this.approvalService) {
+      return (await this.approvalService.request({
+        ...params,
+        actorType: 'system',
+        metadata
+      })).approval;
+    }
+
+    const approval = await this.repos.createApproval(params);
+    await this.repos.audit({
+      actorType: 'system',
+      action: 'approval_requested',
+      entityType: 'approval',
+      entityId: approval.id,
+      metadata: {
+        taskId: approval.task_id,
+        actionType: approval.action_type,
+        riskLevel: approval.risk_level,
+        ...(metadata ?? {})
+      }
+    });
+    return approval;
+  }
+
   private async decideApproval(id: string, status: 'approved' | 'rejected', userId: string) {
+    if (this.approvalService) {
+      return this.approvalService.decide({ id, status, userId, actorType: 'user' });
+    }
     return decideApprovalAction({
       repos: this.repos,
       taskDispatcher: this.taskDispatcher,

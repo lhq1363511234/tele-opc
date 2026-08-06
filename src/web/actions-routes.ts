@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories.js';
-import { decideApproval } from '../approvals/decision.js';
+import type { ApprovalService } from '../approvals/service.js';
 
 const leadSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -58,6 +58,7 @@ const approvalDecisionSchema = z.object({
 export function registerBusinessActionRoutes(
   app: FastifyInstance<any, any, any, any>,
   repos: Repositories,
+  approvalService: ApprovalService,
   allowWebConsoleAccess: any
 ) {
   const opts = { preHandler: allowWebConsoleAccess };
@@ -116,8 +117,7 @@ export function registerBusinessActionRoutes(
         reply.code(404);
         return { ok: false, error: 'approval_not_found' };
       }
-      const result = await decideApproval({
-        repos,
+      const result = await approvalService.decide({
         id: request.params.id,
         status: parsed.data.decision === 'approved' ? 'approved' : 'rejected',
         userId: 'web_console',

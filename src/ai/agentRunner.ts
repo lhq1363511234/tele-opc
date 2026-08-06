@@ -1,3 +1,4 @@
+import type { ApprovalService } from '../approvals/service.js';
 import type { AgentRunRecord, ToolCallRecord } from '../types.js';
 import type { ChatMessage, ChatToolDefinition, ModelProvider, ToolCallRequest } from './modelProvider.js';
 
@@ -111,7 +112,8 @@ export class AgentRunner {
 
   constructor(
     private readonly provider: ModelProvider,
-    private readonly repos: AgentRuntimeRepositories
+    private readonly repos: AgentRuntimeRepositories,
+    private readonly approvalService: ApprovalService | null = null
   ) {}
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
@@ -348,7 +350,7 @@ export class AgentRunner {
     request: AgentRunRequest;
     toolCall: ToolCallRequest;
   }) {
-    if (!this.repos.createApproval) return null;
+    if (!this.approvalService && !this.repos.createApproval) return null;
 
     const { agentRun, request, toolCall } = params;
     const actionType = typeof toolCall.arguments.action === 'string'
@@ -364,10 +366,10 @@ export class AgentRunner {
     const payloadSummary = typeof toolCall.arguments.payloadSummary === 'string'
       ? toolCall.arguments.payloadSummary
       : undefined;
-    return this.repos.createApproval({
+    const approvalRequest = {
       taskId: request.taskId,
       actionType,
-      riskLevel: 'high',
+      riskLevel: 'high' as const,
       prompt: [
         `AI Agent 请求外部写入：${actionType}`,
         target ? `目标：${target}` : '',
@@ -386,7 +388,16 @@ export class AgentRunner {
         target,
         payloadSummary
       }
-    });
+    };
+    if (this.approvalService) {
+      return (await this.approvalService.request({
+        ...approvalRequest,
+        actorType: 'agent',
+        actorId: request.agentId,
+        metadata: { agentRunId: agentRun.id, toolName: toolCall.name }
+      })).approval;
+    }
+    return this.repos.createApproval!(approvalRequest);
   }
 }
 

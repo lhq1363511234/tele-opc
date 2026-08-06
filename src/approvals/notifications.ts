@@ -6,6 +6,7 @@ import { logger } from '../logger.js';
 import { pool } from '../db/pool.js';
 import { WechatIlinkClient } from '../channels/wechat-ilink/api-client.js';
 import { WechatIlinkStore } from '../channels/wechat-ilink/store.js';
+import { TelegramClient } from '../telegram/client.js';
 
 type ApprovalLike = Pick<ApprovalRecord, 'id' | 'task_id' | 'action_type' | 'risk_level' | 'prompt' | 'payload'>
   & Partial<Pick<PendingApprovalRecord, 'task_title'>>;
@@ -48,13 +49,15 @@ export function renderApprovalPrompt(approval: ApprovalLike) {
 }
 
 export async function notifyApprovalChannels(config: AppConfig, repos: Repositories, approval: ApprovalRecord) {
-  const [feishu, clawbot] = await Promise.allSettled([
+  const [feishu, clawbot, telegram] = await Promise.allSettled([
     notifyApprovalToFeishu(config, repos, approval),
-    notifyApprovalToClawBot(config, repos, approval)
+    notifyApprovalToClawBot(config, repos, approval),
+    notifyApprovalToTelegram(config, repos, approval)
   ]);
   return {
     feishu: feishu.status === 'fulfilled' ? feishu.value : { ok: false, error: String(feishu.reason) },
-    clawbot: clawbot.status === 'fulfilled' ? clawbot.value : { ok: false, error: String(clawbot.reason) }
+    clawbot: clawbot.status === 'fulfilled' ? clawbot.value : { ok: false, error: String(clawbot.reason) },
+    telegram: telegram.status === 'fulfilled' ? telegram.value : { ok: false, error: String(telegram.reason) }
   };
 }
 
@@ -89,6 +92,56 @@ async function notifyApprovalToFeishu(config: AppConfig, repos: Repositories, ap
   }
 
   return { ok: results.some((item) => item.ok === true), results };
+}
+
+async function notifyApprovalToTelegram(config: AppConfig, repos: Repositories, approval: ApprovalRecord) {
+  if (!config.telegram.botToken || config.telegram.botToken === 'change-me' || !config.telegram.ownerIds.length) {
+    return { ok: false, skipped: true, reason: 'telegram_disabled' };
+  }
+
+  const client = new TelegramClient(config.telegram.botToken);
+  const results: Array<Record<string, unknown>> = [];
+  for (const ownerId of config.telegram.ownerIds) {
+    const recipientId = String(ownerId);
+    const reserved = await repos.reserveChannelNotification({
+      channel: 'telegram',
+      recipientId,
+      entityType: 'approval',
+      entityId: approval.id,
+      metadata: { actionType: approval.action_type, source: 'approval_notifier' }
+    });
+    if (!reserved) {
+      results.push({ recipientId, skipped: true, reason: 'already_notified' });
+      continue;
+    }
+
+    try {
+      const sent = await client.sendMessage(ownerId, [
+        renderApprovalPrompt(approval),
+        '',
+        `Telegram 命令：/approve ${approval.id}`,
+        `拒绝命令：/reject ${approval.id}`
+      ].join('\n'));
+      const response = sent as Record<string, unknown>;
+      if (response.ok === false) throw new Error('telegram_send_failed');
+      const messageId = telegramMessageId(response) ?? `approval:${approval.id}`;
+      await repos.completeChannelNotification(reserved.id, messageId);
+      results.push({ recipientId, ok: true, messageId });
+    } catch (error) {
+      await repos.deleteChannelNotification(reserved.id);
+      logger.error({ approvalId: approval.id, recipientId, error }, 'approval telegram notification failed');
+      results.push({ recipientId, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return { ok: results.some((item) => item.ok === true), results };
+}
+
+function telegramMessageId(response: Record<string, unknown>) {
+  const result = response.result;
+  if (!result || typeof result !== 'object') return null;
+  const messageId = (result as Record<string, unknown>).message_id;
+  return typeof messageId === 'number' || typeof messageId === 'string' ? String(messageId) : null;
 }
 
 async function notifyApprovalToClawBot(config: AppConfig, repos: Repositories, approval: ApprovalRecord) {

@@ -4,6 +4,7 @@ import YAML from 'yaml';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AgentRunner } from './ai/agentRunner.js';
+import { ApprovalService } from './approvals/service.js';
 import { createModelProviderFromConfig } from './ai/modelProvider.js';
 import { listAgentDefinitions } from './agents/registry.js';
 import { ChiefOfStaff } from './brain/chiefOfStaff.js';
@@ -109,15 +110,19 @@ type WebCommandResult = {
 
 export function registerWebConsole(app: FastifyInstance<any, any, any, any>, config: AppConfig, repos: Repositories) {
   const modelProvider = createModelProviderFromConfig(config);
-  const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
+  const taskDispatcher = new BullMqTaskDispatcher(config.redis.url);
+  const approvalService = new ApprovalService(config, repos, taskDispatcher);
+  const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos, approvalService) : null;
   const brain = new ChiefOfStaff(
     repos,
-    new BullMqTaskDispatcher(config.redis.url),
+    taskDispatcher,
     undefined,
     undefined,
     undefined,
     undefined,
-    agentRunner
+    agentRunner,
+    undefined,
+    approvalService
   );
 
   const allowWebConsoleAccess = createWebConsoleAuthPreHandler(config);
@@ -126,7 +131,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   registerPaperclipWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerASelfWebRoutes(app, repos, allowWebConsoleAccess);
   registerASelfActionsRoutes(app, config, repos, allowWebConsoleAccess);
-  registerBusinessActionRoutes(app, repos, allowWebConsoleAccess);
+  registerBusinessActionRoutes(app, repos, approvalService, allowWebConsoleAccess);
   registerPaymentRoutes(app, config, repos, allowWebConsoleAccess);
   registerStudioRoutes(app, config, repos, allowWebConsoleAccess);
   registerWechatIlinkWebRoutes(app, config, repos, allowWebConsoleAccess);

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AgentRunner } from '../ai/agentRunner.js';
+import { ApprovalService } from '../approvals/service.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
 import { ChiefOfStaff } from '../brain/chiefOfStaff.js';
 import type { AppConfig } from '../config/index.js';
@@ -21,16 +22,20 @@ export class FeishuGateway {
     private readonly client: FeishuClient
   ) {
     const modelProvider = createModelProviderFromConfig(config);
-    const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
+    const taskDispatcher = new BullMqTaskDispatcher(config.redis.url);
+    const approvalService = new ApprovalService(config, repos, taskDispatcher);
+    const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos, approvalService) : null;
     this.attachmentIngestor = new FeishuAttachmentIngestor(config, repos, client);
     this.brain = new ChiefOfStaff(
       repos,
-      new BullMqTaskDispatcher(config.redis.url),
+      taskDispatcher,
       undefined,
       undefined,
       undefined,
       undefined,
-      agentRunner
+      agentRunner,
+      undefined,
+      approvalService
     );
   }
 

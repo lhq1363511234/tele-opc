@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/index.js';
 import { AgentRunner } from '../ai/agentRunner.js';
+import { ApprovalService } from '../approvals/service.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
 import { isOwnerAllowed } from '../auth/ownerAllowlist.js';
 import type { Repositories } from '../db/repositories.js';
@@ -40,7 +41,8 @@ export class TelegramUpdateHandler {
     taskDispatcher: TaskDispatcher = new BullMqTaskDispatcher(config.redis.url)
   ) {
     const modelProvider = createModelProviderFromConfig(config);
-    const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos) : null;
+    const approvalService = new ApprovalService(config, repos, taskDispatcher);
+    const agentRunner = modelProvider ? new AgentRunner(modelProvider, repos, approvalService) : null;
     this.brain = new ChiefOfStaff(
       repos,
       taskDispatcher,
@@ -48,7 +50,9 @@ export class TelegramUpdateHandler {
       undefined,
       undefined,
       undefined,
-      agentRunner
+      agentRunner,
+      undefined,
+      approvalService
     );
     this.client = new TelegramClient(config.telegram.botToken);
     this.codexBridge = new CodexBridge(config.codexBridge);
