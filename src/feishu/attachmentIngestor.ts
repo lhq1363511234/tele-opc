@@ -5,7 +5,6 @@ import type { AppConfig } from '../config/index.js';
 import type { Repositories } from '../db/repositories.js';
 import { createModelProviderFromConfig } from '../ai/modelProvider.js';
 import { parseSpreadsheet, tablesToText } from '../finance/statementParser.js';
-import { runPersonaDistillation } from '../a-self/distill.js';
 import { buildContextPack, contextPackForAgentRuntime } from '../brain/contextPack.js';
 import type { FeishuClient, FeishuDownloadedResource } from './client.js';
 import type { FeishuMessageEvent } from './types.js';
@@ -136,7 +135,7 @@ export class FeishuAttachmentIngestor {
       for (const operation of disposition.operations) {
         try {
           if (operation === 'extract_persona_evidence') {
-            operationResults.push(await this.processPersonaSource(buffer, fileName, hash, event.message_id));
+            operationResults.push(await this.processPersonaSource(buffer, fileName, hash, event.message_id, artifact.id));
           } else if (operation === 'analyze_finance') {
             operationResults.push(await this.processFinanceSheet(buffer, fileName, task.id, artifact.id));
           } else if (operation === 'store_company_knowledge') {
@@ -223,7 +222,7 @@ export class FeishuAttachmentIngestor {
     return normalizeAttachmentDisposition(parseJsonObject(response.content), fileName);
   }
 
-  private async processPersonaSource(buffer: Buffer, fileName: string, hash: string, messageId: string) {
+  private async processPersonaSource(buffer: Buffer, fileName: string, hash: string, messageId: string, artifactId: string) {
     const sourceText = extractText(buffer, fileName);
     if (!sourceText.trim()) return '文件已保存，但没有提取到可用于人格蒸馏的文本。';
     const provider = createModelProviderFromConfig(this.config);
@@ -266,23 +265,31 @@ export class FeishuAttachmentIngestor {
       }));
     }
 
-    let memoryCount = 0;
-    for (const [index, memory] of memories.slice(0, 20).entries()) {
+    const source = await this.repos.createKnowledgeSource({
+      sourceType: 'feishu_attachment',
+      title: fileName,
+      channel: 'feishu',
+      externalId: `${messageId}:${hash}`,
+      artifactId,
+      content: sourceText.slice(0, 60000),
+      sha256: hash,
+      metadata: { fileName, feishuMessageId: messageId }
+    });
+    const candidateInputs = memories.slice(0, 20).flatMap((memory, index) => {
       const content = stringValue(memory.content).trim();
-      if (!content) continue;
-      await this.repos.createASelfMemoryItem({
+      if (!content) return [];
+      return [{
         category: stringValue(memory.category) || 'conversation_evidence',
         title: stringValue(memory.title) || `${fileName} · 人格证据 ${index + 1}`,
         content: content.slice(0, 12000),
         why: stringValue(memory.why) || '从用户上传资料中提取。',
         tags: Array.isArray(memory.tags) ? memory.tags.map(String).slice(0, 12) : ['飞书上传'],
-        source: 'feishu_attachment',
         sensitivity: 'private',
         confidence: clampConfidence(memory.confidence),
         metadata: { fileName, sha256: hash, feishuMessageId: messageId }
-      });
-      memoryCount += 1;
-    }
+      }];
+    });
+    const candidates = await this.repos.createMemoryCandidates(source.id, candidateInputs);
 
     let decisionCount = 0;
     for (const decision of decisions.slice(0, 12)) {
@@ -301,12 +308,8 @@ export class FeishuAttachmentIngestor {
       decisionCount += 1;
     }
 
-    let distilled = false;
-    if (provider && memoryCount > 0) {
-      await runPersonaDistillation(this.repos, this.config);
-      distilled = true;
-    }
-    return `已提取 ${memoryCount} 条人格记忆、${decisionCount} 条决策记录${distilled ? '，并重新蒸馏数字人格' : ''}。所有资料按 private 保存。`;
+    const conflicts = candidates.filter((item) => item.status === 'conflict').length;
+    return `已提取 ${candidates.length} 条记忆候选（${conflicts} 条与现有记忆冲突）、${decisionCount} 条决策记录。记忆候选尚未改写人格，请到 Web「数字本人」审核后再蒸馏。所有资料按 private 保存。`;
   }
 
   private async processFinanceSheet(buffer: Buffer, fileName: string, taskId: string, artifactId: string) {

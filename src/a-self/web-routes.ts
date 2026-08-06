@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories.js';
+import type { AppConfig } from '../config/index.js';
 
 const memorySchema = z.object({
   category: z.string().trim().min(1).max(80),
@@ -10,6 +11,12 @@ const memorySchema = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   sensitivity: z.enum(['private', 'sensitive', 'public']).default('private'),
   confidence: z.number().min(0).max(1).optional()
+});
+
+
+const memoryCandidateReviewSchema = z.object({
+  action: z.enum(['approve_new', 'reject', 'keep_existing']),
+  resolutionNote: z.string().trim().max(2000).optional()
 });
 
 const decisionSchema = z.object({
@@ -35,6 +42,7 @@ const opcRunSchema = z.object({
 
 export function registerASelfWebRoutes(
   app: FastifyInstance<any, any, any, any>,
+  config: AppConfig,
   repos: Repositories,
   allowWebConsoleAccess: any
 ) {
@@ -56,6 +64,47 @@ export function registerASelfWebRoutes(
     await repos.audit({ actorType: 'web_console', action: 'a_self_memory_created', entityType: 'a_self_memory_item', entityId: item.id });
     return { ok: true, item };
   });
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/web/a-self/memory-candidates/:id/review',
+    routeOptions,
+    async (request, reply) => {
+      const parsed = memoryCandidateReviewSchema.safeParse(request.body);
+      if (!parsed.success) {
+        reply.code(400);
+        return { ok: false, error: 'invalid_memory_candidate_review', issues: parsed.error.issues };
+      }
+      const candidate = await repos.reviewMemoryCandidate({
+        id: request.params.id,
+        action: parsed.data.action,
+        reviewedByUserId: 'web_console',
+        resolutionNote: parsed.data.resolutionNote
+      });
+      if (!candidate) {
+        reply.code(404);
+        return { ok: false, error: 'memory_candidate_not_found' };
+      }
+      await repos.audit({
+        actorType: 'web_console',
+        actorId: 'web_console',
+        action: `memory_candidate_${parsed.data.action}`,
+        entityType: 'memory_candidate',
+        entityId: candidate.id,
+        metadata: { resolvedMemoryId: candidate.resolved_memory_id, sourceId: candidate.source_id }
+      });
+      let distilled = false;
+      let distillError: string | undefined;
+      if (parsed.data.action === 'approve_new' && candidate.status === 'approved' && candidate.review_applied) {
+        try {
+          await runPersonaDistillation(repos, config);
+          distilled = true;
+        } catch (error) {
+          distillError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      return { ok: true, candidate, distilled, distillError };
+    }
+  );
 
   app.post<{ Body: unknown }>('/api/web/a-self/decisions', routeOptions, async (request, reply) => {
     const parsed = decisionSchema.safeParse(request.body);
@@ -93,12 +142,14 @@ export function registerASelfWebRoutes(
 }
 
 async function buildASelfDashboard(repos: Repositories) {
-  const [profile, memories, decisions, permissions, opcRuns] = await Promise.all([
+  const [profile, memories, decisions, permissions, opcRuns, memoryCandidates, knowledgeSources] = await Promise.all([
     repos.getASelfProfile(),
     repos.listASelfMemoryItems(80),
     repos.listASelfDecisionLogs(60),
     repos.listASelfPermissionRules(),
-    repos.listASelfOpcRuns(30)
+    repos.listASelfOpcRuns(30),
+    repos.listMemoryCandidates({ limit: 100 }),
+    repos.listKnowledgeSources(30)
   ]);
 
   const memoryByCategory = memories.reduce<Record<string, number>>((counts, item) => {
@@ -114,7 +165,7 @@ async function buildASelfDashboard(repos: Repositories) {
   return {
     ok: true,
     generatedAt: new Date().toISOString(),
-    phase: 'A- 0.1',
+    phase: 'A- 0.2 · 记忆生命周期',
     profile,
     metrics: {
       memories: memories.length,
@@ -123,10 +174,16 @@ async function buildASelfDashboard(repos: Repositories) {
       decisionRules,
       permissionRules: permissions.length,
       opcRuns: opcRuns.length,
-      confidence: Number(profile?.confidence ?? 0)
+      confidence: Number(profile?.confidence ?? 0),
+      memoryCandidates: memoryCandidates.length,
+      pendingMemoryCandidates: memoryCandidates.filter((item) => ['pending', 'conflict'].includes(item.status)).length,
+      memoryConflicts: memoryCandidates.filter((item) => item.status === 'conflict').length,
+      knowledgeSources: knowledgeSources.length
     },
     memoryByCategory,
     memories,
+    memoryCandidates,
+    knowledgeSources,
     decisions,
     permissions,
     autonomyLevels,

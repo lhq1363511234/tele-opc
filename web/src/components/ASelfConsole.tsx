@@ -1,9 +1,9 @@
-import { Brain, CheckCircle2, Database, KeyRound, Plus, RefreshCw, ShieldCheck, Sparkles, Sunrise, Target, X } from 'lucide-react';
+import { AlertTriangle, Brain, CheckCircle2, Database, KeyRound, Plus, RefreshCw, ShieldCheck, Sparkles, Sunrise, Target, X, XCircle } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '../api';
 import { formatTime } from '../format';
-import type { ASelfConsoleResponse, ASelfOpcMove, ASelfOpcRun } from '../types';
+import type { ASelfConsoleResponse, ASelfOpcMove, ASelfOpcRun, KnowledgeSource, MemoryCandidate } from '../types';
 import { RelationshipDesk } from './RelationshipDesk';
 import { EmptyState, ErrorPanel, LoadingPanel, PanelHeader, StatusPill, truncateText } from './ui';
 
@@ -63,10 +63,12 @@ export function ASelfConsole() {
 
     <div className="a-self-kpis">
       <Metric icon={Database} label="记忆条目" value={data.metrics.memories} hint={`${data.metrics.memoryCategories} 类资料`} />
+      <Metric icon={Sparkles} label="待审候选" value={data.metrics.pendingMemoryCandidates} hint={`${data.metrics.memoryConflicts} 条冲突`} />
       <Metric icon={Target} label="决策日志" value={data.metrics.decisions} hint={`${data.metrics.decisionRules} 条规则`} />
-      <Metric icon={ShieldCheck} label="权限规则" value={data.metrics.permissionRules} hint="Level 1/2/3" />
       <Metric icon={Sunrise} label="OPC 运行" value={data.metrics.opcRuns} hint="早晚经营循环" />
     </div>
+
+    <MemoryCandidateBoard candidates={data.memoryCandidates} sources={data.knowledgeSources} />
 
     <div className="a-self-grid">
       <section className="panel a-self-profile-card">
@@ -143,6 +145,84 @@ export function ASelfConsole() {
     {memoryOpen ? <MemoryDialog onClose={() => setMemoryOpen(false)} onCreated={() => { setMemoryOpen(false); refresh(); }} /> : null}
     {decisionOpen ? <DecisionDialog onClose={() => setDecisionOpen(false)} onCreated={() => { setDecisionOpen(false); refresh(); }} /> : null}
   </div>;
+}
+
+function MemoryCandidateBoard({ candidates, sources }: { candidates: MemoryCandidate[]; sources: KnowledgeSource[] }) {
+  const queryClient = useQueryClient();
+  const actionable = candidates.filter((item) => ['pending', 'conflict'].includes(item.status));
+  const review = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'approve_new' | 'reject' | 'keep_existing' }) =>
+      apiPost<{ ok: boolean; candidate: MemoryCandidate; distilled: boolean; distillError?: string }>(
+        `/api/web/a-self/memory-candidates/${encodeURIComponent(id)}/review`,
+        { action }
+      ),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['a-self-console'] })
+  });
+
+  return (
+    <section className="panel memory-lifecycle-panel">
+      <div className="memory-lifecycle-heading">
+        <div>
+          <span className="eyebrow">MEMORY LIFECYCLE</span>
+          <h2>资料不会直接改写人格</h2>
+          <p>系统先提取候选、保留来源并检测冲突；只有你批准后，才写入长期记忆并重新蒸馏数字本人。</p>
+        </div>
+        <div className="memory-lifecycle-stats">
+          <span><strong>{sources.length}</strong> 个来源</span>
+          <span><strong>{actionable.length}</strong> 条待审</span>
+          <span className={actionable.some((item) => item.status === 'conflict') ? 'attention' : ''}>
+            <strong>{actionable.filter((item) => item.status === 'conflict').length}</strong> 条冲突
+          </span>
+        </div>
+      </div>
+
+      {actionable.length ? (
+        <div className="memory-candidate-list">
+          {actionable.slice(0, 12).map((candidate) => (
+            <article key={candidate.id} className={candidate.status === 'conflict' ? 'is-conflict' : ''}>
+              <header>
+                <div>
+                  <span className="memory-candidate-source">{candidate.source_channel || candidate.source_type || '资料'} · {candidate.source_title || candidate.source_id}</span>
+                  <h3>{candidate.title}</h3>
+                </div>
+                <span className={`memory-candidate-status ${candidate.status}`}>
+                  {candidate.status === 'conflict' ? <AlertTriangle size={13} /> : <Sparkles size={13} />}
+                  {candidate.status === 'conflict' ? '发现冲突' : '等待审核'}
+                </span>
+              </header>
+              <p>{truncateText(candidate.content, 300)}</p>
+              {candidate.why ? <small><strong>为什么：</strong>{truncateText(candidate.why, 180)}</small> : null}
+              {candidate.status === 'conflict' ? (
+                <div className="memory-conflict-box">
+                  <strong>现有记忆：{candidate.conflict_title || candidate.conflict_with_memory_id}</strong>
+                  <p>{truncateText(candidate.conflict_content || '已有相同标题或内容。', 220)}</p>
+                </div>
+              ) : null}
+              <footer>
+                <span>{candidate.category} · 置信 {Math.round(Number(candidate.confidence || 0) * 100)}%</span>
+                <div>
+                  {candidate.status === 'conflict' ? (
+                    <button type="button" className="ghost-button" onClick={() => review.mutate({ id: candidate.id, action: 'keep_existing' })} disabled={review.isPending}>
+                      保留旧记忆
+                    </button>
+                  ) : null}
+                  <button type="button" className="ghost-button danger" onClick={() => review.mutate({ id: candidate.id, action: 'reject' })} disabled={review.isPending}>
+                    <XCircle size={14} /> 拒绝
+                  </button>
+                  <button type="button" className="primary-button" onClick={() => review.mutate({ id: candidate.id, action: 'approve_new' })} disabled={review.isPending}>
+                    <CheckCircle2 size={14} /> {candidate.status === 'conflict' ? '仍批准为新记忆' : '批准并蒸馏'}
+                  </button>
+                </div>
+              </footer>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState text="当前没有等待审核的记忆候选。你可以在工作台粘贴资料，或直接在飞书上传聊天记录、复盘和项目文件。" />
+      )}
+      {review.isError ? <ErrorPanel error={review.error} /> : null}
+    </section>
+  );
 }
 
 function Metric({ icon: Icon, label, value, hint }: { icon: typeof Brain; label: string; value: number | string; hint: string }) {

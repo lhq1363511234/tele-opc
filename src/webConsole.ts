@@ -129,7 +129,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   const authMode = resolveWebConsoleAuthMode(config);
   const customerEmailSender = CustomerEmailSender.fromEnv();
   registerPaperclipWebRoutes(app, config, repos, allowWebConsoleAccess);
-  registerASelfWebRoutes(app, repos, allowWebConsoleAccess);
+  registerASelfWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerASelfActionsRoutes(app, config, repos, allowWebConsoleAccess);
   registerBusinessActionRoutes(app, repos, approvalService, allowWebConsoleAccess);
   registerPaymentRoutes(app, config, repos, allowWebConsoleAccess);

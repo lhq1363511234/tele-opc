@@ -47,8 +47,9 @@ export function KnowledgeStudio() {
   });
 
   const commit = useMutation({
-    mutationFn: () => apiPost<{ ok: boolean; created: number }>('/api/web/studio/knowledge-commit', {
+    mutationFn: () => apiPost<{ ok: boolean; created: number; pending: number; conflicts: number; sourceId: string }>('/api/web/studio/knowledge-commit', {
       source: source.trim() || undefined,
+      raw: raw.trim(),
       items: items.filter((_, i) => selected[i]).map((item) => ({
         category: item.category || category,
         title: item.title,
@@ -59,7 +60,7 @@ export function KnowledgeStudio() {
       }))
     }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['a-self'] });
+      void queryClient.invalidateQueries({ queryKey: ['a-self-console'] });
       void queryClient.invalidateQueries({ queryKey: ['overview'] });
     }
   });
@@ -124,7 +125,7 @@ export function KnowledgeStudio() {
               disabled={commit.isPending || !selectedCount || commit.isSuccess}
             >
               <BookOpen size={15} />
-              {commit.isSuccess ? `已入库 ${commit.data?.created} 条` : commit.isPending ? '入库中…' : `存入记忆库 ${selectedCount} 条`}
+              {commit.isSuccess ? `已生成 ${commit.data?.created} 条候选` : commit.isPending ? '提交中…' : `提交审核 ${selectedCount} 条`}
             </button>
           </div>
 
@@ -161,7 +162,7 @@ export function KnowledgeStudio() {
           </div>
 
           {commit.isSuccess ? (
-            <p className="import-success"><CheckCircle2 size={15} /> 已存入记忆库，A- 的判断依据又多了一层。</p>
+            <p className="import-success"><CheckCircle2 size={15} /> 已保留原始来源并生成 {commit.data?.pending ?? 0} 条待审候选、{commit.data?.conflicts ?? 0} 条冲突候选。请到「数字本人」审核，资料不会直接改写人格。</p>
           ) : null}
           {commit.isError ? <ErrorPanel error={commit.error} /> : null}
         </div>

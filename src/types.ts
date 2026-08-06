@@ -59,6 +59,50 @@ export interface ASelfMemoryItemRecord {
   archived_at: string | null;
 }
 
+export type MemoryCandidateStatus = 'pending' | 'conflict' | 'approved' | 'rejected' | 'merged' | 'obsolete';
+
+export interface KnowledgeSourceRecord {
+  id: string;
+  source_type: string;
+  title: string;
+  channel: string | null;
+  external_id: string | null;
+  artifact_id: string | null;
+  content: string | null;
+  sha256: string | null;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryCandidateRecord {
+  id: string;
+  source_id: string;
+  category: string;
+  title: string;
+  content: string;
+  why: string | null;
+  tags: string[];
+  sensitivity: string;
+  confidence: number;
+  status: MemoryCandidateStatus;
+  conflict_with_memory_id: string | null;
+  resolved_memory_id: string | null;
+  review_action: string | null;
+  resolution_note: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  source_title?: string;
+  source_type?: string;
+  source_channel?: string | null;
+  conflict_title?: string | null;
+  conflict_content?: string | null;
+}
+
 export interface ASelfDecisionLogRecord {
   id: string;
   decided_at: string;

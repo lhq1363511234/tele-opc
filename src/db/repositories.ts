@@ -37,6 +37,8 @@ import type {
   FinanceDashboard,
   FollowUpRecord,
   IntegrationHealthCheckRecord,
+  KnowledgeSourceRecord,
+  MemoryCandidateRecord,
   InvoiceRecord,
   InvoiceStatus,
   MailDashboard,
@@ -4510,6 +4512,255 @@ export class Repositories {
       ]
     );
     return result.rows[0] as ASelfMemoryItemRecord;
+  }
+
+  async createKnowledgeSource(params: {
+    sourceType: string;
+    title: string;
+    channel?: string;
+    externalId?: string;
+    artifactId?: string;
+    content?: string;
+    sha256?: string;
+    status?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const id = `ksrc_${randomUUID()}`;
+    const result = await this.pool.query(
+      `
+      INSERT INTO knowledge_sources (
+        id, source_type, title, channel, external_id, artifact_id, content, sha256, status, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (source_type, external_id) WHERE external_id IS NOT NULL
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        channel = COALESCE(EXCLUDED.channel, knowledge_sources.channel),
+        artifact_id = COALESCE(EXCLUDED.artifact_id, knowledge_sources.artifact_id),
+        content = COALESCE(EXCLUDED.content, knowledge_sources.content),
+        sha256 = COALESCE(EXCLUDED.sha256, knowledge_sources.sha256),
+        status = EXCLUDED.status,
+        metadata = knowledge_sources.metadata || EXCLUDED.metadata,
+        updated_at = now()
+      RETURNING *
+      `,
+      [
+        id,
+        params.sourceType,
+        params.title,
+        params.channel ?? null,
+        params.externalId ?? null,
+        params.artifactId ?? null,
+        params.content ?? null,
+        params.sha256 ?? null,
+        params.status ?? 'processed',
+        JSON.stringify(params.metadata ?? {})
+      ]
+    );
+    return result.rows[0] as KnowledgeSourceRecord;
+  }
+
+  async listKnowledgeSources(limit = 40) {
+    const result = await this.pool.query(
+      `SELECT ks.*,
+              COUNT(mc.id)::int AS candidate_count,
+              COUNT(mc.id) FILTER (WHERE mc.status IN ('pending', 'conflict'))::int AS pending_candidate_count
+       FROM knowledge_sources ks
+       LEFT JOIN memory_candidates mc ON mc.source_id = ks.id
+       GROUP BY ks.id
+       ORDER BY ks.created_at DESC
+       LIMIT $1`,
+      [Math.min(200, Math.max(1, limit))]
+    );
+    return result.rows as Array<KnowledgeSourceRecord & { candidate_count: number; pending_candidate_count: number }>;
+  }
+
+  async createMemoryCandidate(params: {
+    sourceId: string;
+    category: string;
+    title: string;
+    content: string;
+    why?: string | null;
+    tags?: string[];
+    sensitivity?: string;
+    confidence?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    const conflict = await this.pool.query(
+      `SELECT id, title, content
+       FROM a_self_memory_items
+       WHERE archived_at IS NULL
+         AND status = 'active'
+         AND (
+           lower(trim(content)) = lower(trim($3))
+           OR (category = $1 AND lower(trim(title)) = lower(trim($2)))
+         )
+       ORDER BY CASE WHEN lower(trim(content)) = lower(trim($3)) THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT 1`,
+      [params.category, params.title, params.content]
+    );
+    const conflictMemory = conflict.rows[0] as { id: string; title: string; content: string } | undefined;
+    const id = `mcand_${randomUUID()}`;
+    const result = await this.pool.query(
+      `INSERT INTO memory_candidates (
+         id, source_id, category, title, content, why, tags, sensitivity,
+         confidence, status, conflict_with_memory_id, metadata
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, $11, $12)
+       RETURNING *`,
+      [
+        id,
+        params.sourceId,
+        params.category,
+        params.title,
+        params.content,
+        params.why ?? null,
+        params.tags ?? [],
+        params.sensitivity ?? 'private',
+        params.confidence ?? 0.5,
+        conflictMemory ? 'conflict' : 'pending',
+        conflictMemory?.id ?? null,
+        JSON.stringify({
+          ...(params.metadata ?? {}),
+          ...(conflictMemory ? { conflictReason: conflictMemory.content.trim().toLowerCase() === params.content.trim().toLowerCase() ? 'duplicate_content' : 'same_category_title' } : {})
+        })
+      ]
+    );
+    return result.rows[0] as MemoryCandidateRecord;
+  }
+
+  async createMemoryCandidates(sourceId: string, items: Array<{
+    category: string;
+    title: string;
+    content: string;
+    why?: string | null;
+    tags?: string[];
+    sensitivity?: string;
+    confidence?: number;
+    metadata?: Record<string, unknown>;
+  }>) {
+    const created: MemoryCandidateRecord[] = [];
+    for (const item of items) created.push(await this.createMemoryCandidate({ sourceId, ...item }));
+    return created;
+  }
+
+  async listMemoryCandidates(params: { status?: string; limit?: number } = {}) {
+    const values: Array<string | number> = [];
+    const where: string[] = [];
+    if (params.status) {
+      values.push(params.status);
+      where.push(`mc.status = $${values.length}`);
+    }
+    values.push(Math.min(300, Math.max(1, params.limit ?? 80)));
+    const result = await this.pool.query(
+      `SELECT mc.*,
+              ks.title AS source_title,
+              ks.source_type,
+              ks.channel AS source_channel,
+              conflict.title AS conflict_title,
+              conflict.content AS conflict_content
+       FROM memory_candidates mc
+       JOIN knowledge_sources ks ON ks.id = mc.source_id
+       LEFT JOIN a_self_memory_items conflict ON conflict.id = mc.conflict_with_memory_id
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY CASE mc.status WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, mc.created_at DESC
+       LIMIT $${values.length}`,
+      values
+    );
+    return result.rows as MemoryCandidateRecord[];
+  }
+
+  async getMemoryCandidate(id: string) {
+    const result = await this.pool.query(
+      `SELECT mc.*,
+              ks.title AS source_title,
+              ks.source_type,
+              ks.channel AS source_channel,
+              conflict.title AS conflict_title,
+              conflict.content AS conflict_content
+       FROM memory_candidates mc
+       JOIN knowledge_sources ks ON ks.id = mc.source_id
+       LEFT JOIN a_self_memory_items conflict ON conflict.id = mc.conflict_with_memory_id
+       WHERE mc.id = $1`,
+      [id]
+    );
+    return (result.rows[0] as MemoryCandidateRecord | undefined) ?? null;
+  }
+
+  async reviewMemoryCandidate(params: {
+    id: string;
+    action: 'approve_new' | 'reject' | 'keep_existing';
+    reviewedByUserId: string;
+    resolutionNote?: string;
+  }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const selected = await client.query('SELECT * FROM memory_candidates WHERE id = $1 FOR UPDATE', [params.id]);
+      const candidate = selected.rows[0] as MemoryCandidateRecord | undefined;
+      if (!candidate) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      if (!['pending', 'conflict'].includes(candidate.status)) {
+        await client.query('COMMIT');
+        const existing = await this.getMemoryCandidate(candidate.id);
+        return existing ? { ...existing, review_applied: false } : null;
+      }
+
+      if (params.action === 'reject' || params.action === 'keep_existing') {
+        const status = params.action === 'reject' ? 'rejected' : 'merged';
+        const resolvedMemoryId = params.action === 'keep_existing' ? candidate.conflict_with_memory_id : null;
+        await client.query(
+          `UPDATE memory_candidates
+           SET status = $2, review_action = $3, resolution_note = $4,
+               resolved_memory_id = $5, reviewed_by_user_id = $6,
+               reviewed_at = now(), updated_at = now()
+           WHERE id = $1`,
+          [candidate.id, status, params.action, params.resolutionNote ?? null, resolvedMemoryId, params.reviewedByUserId]
+        );
+        await client.query('COMMIT');
+        const reviewed = await this.getMemoryCandidate(candidate.id);
+        return reviewed ? { ...reviewed, review_applied: true } : null;
+      }
+
+      const memoryId = `asm_${randomUUID()}`;
+      await client.query(
+        `INSERT INTO a_self_memory_items (
+           id, category, title, content, why, tags, source, sensitivity, confidence, status, metadata
+         ) VALUES ($1, $2, $3, $4, $5, $6::text[], 'memory_candidate', $7, $8, 'active', $9)`,
+        [
+          memoryId,
+          candidate.category,
+          candidate.title,
+          candidate.content,
+          candidate.why,
+          candidate.tags,
+          candidate.sensitivity,
+          candidate.confidence,
+          JSON.stringify({
+            source: 'memory_candidate',
+            candidateId: candidate.id,
+            knowledgeSourceId: candidate.source_id,
+            conflictWithMemoryId: candidate.conflict_with_memory_id
+          })
+        ]
+      );
+      await client.query(
+        `UPDATE memory_candidates
+         SET status = 'approved', review_action = $2, resolution_note = $3,
+             resolved_memory_id = $4, reviewed_by_user_id = $5,
+             reviewed_at = now(), updated_at = now()
+         WHERE id = $1`,
+        [candidate.id, params.action, params.resolutionNote ?? null, memoryId, params.reviewedByUserId]
+      );
+      await client.query('COMMIT');
+      const reviewed = await this.getMemoryCandidate(candidate.id);
+      return reviewed ? { ...reviewed, review_applied: true } : null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listASelfDecisionLogs(limit = 60) {

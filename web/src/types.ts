@@ -288,6 +288,40 @@ export interface ASelfMemoryItem extends AnyRecord {
   updated_at: string;
 }
 
+export interface KnowledgeSource extends AnyRecord {
+  id: string;
+  source_type: string;
+  title: string;
+  channel?: string | null;
+  external_id?: string | null;
+  artifact_id?: string | null;
+  status: string;
+  candidate_count?: number;
+  pending_candidate_count?: number;
+  created_at: string;
+}
+
+export interface MemoryCandidate extends AnyRecord {
+  id: string;
+  source_id: string;
+  category: string;
+  title: string;
+  content: string;
+  why?: string | null;
+  tags: string[];
+  sensitivity: string;
+  confidence: number;
+  status: 'pending' | 'conflict' | 'approved' | 'rejected' | 'merged' | 'obsolete';
+  conflict_with_memory_id?: string | null;
+  resolved_memory_id?: string | null;
+  source_title?: string;
+  source_type?: string;
+  source_channel?: string | null;
+  conflict_title?: string | null;
+  conflict_content?: string | null;
+  created_at: string;
+}
+
 export interface ASelfDecisionLog extends AnyRecord {
   id: string;
   decided_at: string;
@@ -349,9 +383,15 @@ export interface ASelfConsoleResponse extends AnyRecord {
     permissionRules: number;
     opcRuns: number;
     confidence: number;
+    memoryCandidates: number;
+    pendingMemoryCandidates: number;
+    memoryConflicts: number;
+    knowledgeSources: number;
   };
   memoryByCategory: Record<string, number>;
   memories: ASelfMemoryItem[];
+  memoryCandidates: MemoryCandidate[];
+  knowledgeSources: KnowledgeSource[];
   decisions: ASelfDecisionLog[];
   permissions: ASelfPermissionRule[];
   autonomyLevels: Record<string, number>;

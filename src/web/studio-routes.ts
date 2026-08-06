@@ -312,7 +312,8 @@ const knowledgeCommitSchema = z.object({
     tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     confidence: z.number().min(0).max(1).optional()
   })).min(1).max(80),
-  source: z.string().trim().max(160).optional()
+  source: z.string().trim().max(160).optional(),
+  raw: z.string().trim().min(1).max(40000)
 });
 
 export function registerStudioRoutes(
@@ -1002,25 +1003,42 @@ export function registerStudioRoutes(
       reply.code(400);
       return { ok: false, error: 'invalid_knowledge_commit', issues: parsed.error.issues };
     }
-    const created: string[] = [];
-    const failed: Array<{ title: string; message: string }> = [];
-    for (const item of parsed.data.items) {
-      try {
-        const record = await repos.createASelfMemoryItem({
-          category: item.category,
-          title: item.title,
-          content: item.content,
-          why: item.why || null,
-          tags: item.tags ?? [],
-          source: 'knowledge_studio',
-          confidence: item.confidence ?? 0.6,
-          metadata: { source: 'knowledge_studio', origin: parsed.data.source ?? null }
-        });
-        created.push(record.id);
-      } catch (err) {
-        failed.push({ title: item.title, message: err instanceof Error ? err.message : String(err) });
+    const source = await repos.createKnowledgeSource({
+      sourceType: 'web_knowledge_text',
+      title: parsed.data.source || `知识工作台资料 · ${new Date().toISOString().slice(0, 10)}`,
+      channel: 'web',
+      content: parsed.data.raw,
+      metadata: { source: 'knowledge_studio' }
+    });
+    const candidates = await repos.createMemoryCandidates(source.id, parsed.data.items.map((item) => ({
+      category: item.category,
+      title: item.title,
+      content: item.content,
+      why: item.why || null,
+      tags: item.tags ?? [],
+      sensitivity: 'private',
+      confidence: item.confidence ?? 0.6,
+      metadata: { source: 'knowledge_studio', origin: parsed.data.source ?? null }
+    })));
+    await repos.audit({
+      actorType: 'web_console',
+      actorId: 'web_console',
+      action: 'memory_candidates_created',
+      entityType: 'knowledge_source',
+      entityId: source.id,
+      metadata: {
+        candidateIds: candidates.map((item) => item.id),
+        pending: candidates.filter((item) => item.status === 'pending').length,
+        conflicts: candidates.filter((item) => item.status === 'conflict').length
       }
-    }
-    return { ok: true, created: created.length, failed };
+    });
+    return {
+      ok: true,
+      sourceId: source.id,
+      created: candidates.length,
+      pending: candidates.filter((item) => item.status === 'pending').length,
+      conflicts: candidates.filter((item) => item.status === 'conflict').length,
+      candidates
+    };
   });
 }
