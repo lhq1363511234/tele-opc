@@ -36,6 +36,10 @@ export interface ChatCompletionRequest {
   messages: ChatMessage[];
   tools?: ChatToolDefinition[];
   temperature?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
+  maxTokens?: number;
+  reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 export interface ChatCompletionResponse {
@@ -80,9 +84,12 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       messages: request.messages.map(toOpenAIMessage),
       tools: request.tools,
       tool_choice: request.tools?.length ? 'auto' : undefined,
-      temperature: request.temperature ?? 0.2
+      temperature: request.temperature ?? 0.2,
+      max_tokens: request.maxTokens,
+      reasoning_effort: request.reasoningEffort
     });
-    const retryDelaysMs = [0, 700, 1800];
+    const retryDelaysMs = [0, 700, 1800].slice(0, Math.max(1, Math.min(3, (request.maxRetries ?? 2) + 1)));
+    const timeoutMs = request.timeoutMs ?? this.timeoutMs;
     let lastError: unknown;
 
     for (const [attempt, delayMs] of retryDelaysMs.entries()) {
@@ -95,7 +102,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
             'content-type': 'application/json'
           },
           body,
-          signal: AbortSignal.timeout(this.timeoutMs)
+          signal: AbortSignal.timeout(timeoutMs)
         });
 
         const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;

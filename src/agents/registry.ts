@@ -35,6 +35,22 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     approvalRequiredFor: []
   },
   {
+    id: 'meta_architect',
+    displayName: 'Meta-Agent Architect',
+    role: 'Turns arbitrary business requirements into production, audit, search, approval, and hot-swap agent blueprints.',
+    mode: 'autonomous',
+    capabilities: ['agent_graph_design', 'success_contract_design', 'component_discovery', 'runtime_evolution'],
+    approvalRequiredFor: ['install_third_party_code', 'activate_external_mcp', 'grant_external_credentials']
+  },
+  {
+    id: 'evolution_auditor',
+    displayName: 'Evolution Auditor',
+    role: 'Independently scores outputs, rejects weak attempts, and triggers bounded component replacement.',
+    mode: 'autonomous',
+    capabilities: ['independent_audit', 'quality_scoring', 'failure_feedback', 'hot_swap_decision'],
+    approvalRequiredFor: []
+  },
+  {
     id: 'planner',
     displayName: 'Planner Agent',
     role: 'Breaks owner goals into executable multi-agent tasks.',

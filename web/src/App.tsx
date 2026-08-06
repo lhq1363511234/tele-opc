@@ -50,6 +50,7 @@ import { FinanceActionStudio } from './components/studio/FinanceActionStudio';
 import { AgentSettingsStudio } from './components/studio/AgentSettingsStudio';
 import { KnowledgeStudio } from './components/studio/KnowledgeStudio';
 import { ArchitectureMap } from './components/ArchitectureMap';
+import { MetaAgentWorkbench } from './components/MetaAgentWorkbench';
 import { ApiError, apiGet, apiPost, apiPut, getWebConsoleDevToken, setWebConsoleDevToken } from './api';
 import { countItems, formatMoney, formatTime, labelFromSnake } from './format';
 import {
@@ -1433,8 +1434,10 @@ function AgentsPage({ agents }: { agents: AgentDefinition[] }) {
   });
 
   return (
-    <div className="two-column">
-      <section className="panel">
+    <div className="agents-page-stack">
+      <MetaAgentWorkbench />
+      <div className="two-column">
+        <section className="panel">
         <PanelHeader title="Agent Registry" hint="Chief、Router、Skill、业务 Agent" />
         <div className="agent-grid">
           {agents.map((agent) => (
@@ -1464,7 +1467,8 @@ function AgentsPage({ agents }: { agents: AgentDefinition[] }) {
           ))}
         </div>
         <TraceDetail detail={runDetail.data} />
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

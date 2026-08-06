@@ -115,21 +115,30 @@ modules:
   - 审批后不继续
   - 任务重复执行或步骤跳过
 - id: M06
-  name: agents-skills-trace
-  label: Agent / Skill / Trace
+  name: agents-skills-trace-evolution
+  label: Agent / Skill / Trace / Evolution
+  frontend:
+  - web/src/components/MetaAgentWorkbench.tsx
   backend:
   - src/agents/registry.ts
   - src/skills/registry.ts
   - src/ai
+  - src/meta-agent
   tables:
   - skill_registry
   - skill_versions
   - skill_runs
   - agent_runs
   - tool_calls
-  responsibility: 负责 Agent 名册、Skill 选择、模型运行、工具调用和执行轨迹。
+  - meta_agent_blueprints
+  - meta_agent_components
+  - meta_agent_runs
+  - meta_agent_attempts
+  responsibility: 负责 Agent 名册、Skill 选择、模型运行、工具调用、元智能体蓝图、实时组件发现、独立审计和热替换。
   symptoms:
   - Agent 未被调用
+  - GitHub 或 MCP 组件搜索为空
+  - 审计不通过但没有热替换
   - 模型有输出但任务无结果
   - Trace 找不到链路
 - id: M07

@@ -398,3 +398,89 @@ export interface ASelfConsoleResponse extends AnyRecord {
   opcRuns: ASelfOpcRun[];
   roadmap: Array<{ phase: string; status: string; description: string }>;
 }
+
+export interface MetaAgentRole {
+  id: string;
+  role: string;
+  responsibility: string;
+  systemPrompt: string;
+  requiredCapabilities: string[];
+}
+
+export interface MetaAgentBlueprintSpec {
+  systemName: string;
+  objective: string;
+  productionAgent: MetaAgentRole;
+  auditorAgent: MetaAgentRole;
+  supportingAgents: MetaAgentRole[];
+  successCriteria: string[];
+  searchQueries: string[];
+  minimumAuditScore: number;
+  maxAttempts: number;
+  approvalBoundaries: string[];
+  assemblyPolicy: {
+    allowReferenceMount: boolean;
+    allowExecutableInstall: boolean;
+    executableInstallRequiresApproval: boolean;
+  };
+}
+
+export interface MetaAgentBlueprintRecord extends AnyRecord {
+  id: string;
+  requirement: string;
+  system_name: string;
+  status: string;
+  blueprint: MetaAgentBlueprintSpec;
+  created_at: string;
+}
+
+export interface MetaAgentComponentRecord extends AnyRecord {
+  id: string;
+  blueprint_id: string;
+  source: 'github' | 'mcp_registry' | 'local';
+  external_id: string;
+  name: string;
+  description: string | null;
+  url: string | null;
+  version: string | null;
+  stars: number;
+  score: number;
+  status: string;
+  metadata: AnyRecord;
+}
+
+export interface MetaAgentRunRecord extends AnyRecord {
+  id: string;
+  blueprint_id: string;
+  task_input: string;
+  status: string;
+  selected_component_id: string | null;
+  final_output: string | null;
+  audit_summary: AnyRecord;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface MetaAgentAttemptRecord extends AnyRecord {
+  id: string;
+  run_id: string;
+  attempt_no: number;
+  component_id: string | null;
+  producer_role: string;
+  auditor_role: string;
+  output: string;
+  audit_status: 'passed' | 'failed';
+  audit_score: number;
+  feedback: string | null;
+  metadata: AnyRecord;
+}
+
+export interface MetaAgentDashboardResponse {
+  ok: boolean;
+  dashboard: {
+    blueprints: MetaAgentBlueprintRecord[];
+    runs: MetaAgentRunRecord[];
+    selected: MetaAgentBlueprintRecord | null;
+    components: MetaAgentComponentRecord[];
+  };
+}

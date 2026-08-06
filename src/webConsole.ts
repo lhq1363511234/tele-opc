@@ -30,6 +30,10 @@ import { registerPaymentRoutes } from './web/payment-routes.js';
 import { registerStudioRoutes } from './web/studio-routes.js';
 import { registerWechatIlinkWebRoutes } from './channels/wechat-ilink/web-routes.js';
 import { registerPersonalWechatBridgeRoutes } from './channels/personal-wechat/routes.js';
+import { pool } from './db/pool.js';
+import { MetaAgentStore } from './meta-agent/store.js';
+import { MetaAgentEvolutionService } from './meta-agent/service.js';
+import { registerMetaAgentWebRoutes } from './meta-agent/web-routes.js';
 
 const apiLimitSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30)
@@ -127,6 +131,9 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
 
   const allowWebConsoleAccess = createWebConsoleAuthPreHandler(config);
   const authMode = resolveWebConsoleAuthMode(config);
+  const metaAgentService = modelProvider
+    ? new MetaAgentEvolutionService(modelProvider, new MetaAgentStore(pool))
+    : null;
   const customerEmailSender = CustomerEmailSender.fromEnv();
   registerPaperclipWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerASelfWebRoutes(app, config, repos, allowWebConsoleAccess);
@@ -136,6 +143,7 @@ export function registerWebConsole(app: FastifyInstance<any, any, any, any>, con
   registerStudioRoutes(app, config, repos, allowWebConsoleAccess);
   registerWechatIlinkWebRoutes(app, config, repos, allowWebConsoleAccess);
   registerPersonalWechatBridgeRoutes(app, config, repos, allowWebConsoleAccess);
+  registerMetaAgentWebRoutes(app, metaAgentService, allowWebConsoleAccess);
 
   app.get('/api/web/session', { preHandler: allowWebConsoleAccess }, async () => ({
     ok: true,

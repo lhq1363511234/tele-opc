@@ -286,7 +286,11 @@ const backupTableNames = [
   'campaigns',
   'campaign_events',
   'agent_runs',
-  'tool_calls'
+  'tool_calls',
+  'meta_agent_blueprints',
+  'meta_agent_components',
+  'meta_agent_runs',
+  'meta_agent_attempts'
 ] as const;
 
 export class Repositories {

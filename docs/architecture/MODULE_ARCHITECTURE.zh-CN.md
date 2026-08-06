@@ -76,13 +76,15 @@
 - **服务**：`tele-opc-worker.service`；日志 `runtime/logs/worker.dev.log`。
 - **常见故障**：任务无反应、一直 queued/running、批准后不继续、步骤跳过、重复审批。
 
-### M06 Agent / Skill / Trace
+### M06 Agent / Skill / Trace / Evolution
 
-- **责任**：数字员工名册、Skill 选择、Agent run、Tool call 和执行轨迹。
-- **前端**：Agents、Agent Network、任务详情 Trace。
-- **后端**：`src/agents/registry.ts`、`src/skills/registry.ts`、`src/ai/*`。
-- **数据**：`skill_registry`、`skill_versions`、`skill_runs`、`agent_runs`、`tool_calls`。
-- **常见故障**：Agent 未被调用、Tool call 空、模型输出有但任务无结果、Trace 找不到链路。
+- **责任**：数字员工名册、Skill 选择、Agent run、Tool call、元智能体蓝图、实时组件发现、独立审计和有界热替换。
+- **前端**：Agents、`MetaAgentWorkbench.tsx`、Agent Network、任务详情 Trace。
+- **后端**：`src/agents/registry.ts`、`src/skills/registry.ts`、`src/ai/*`、`src/meta-agent/*`；详细设计见 `META_AGENT_EVOLUTION_ENGINE.zh-CN.md`。
+- **数据**：`skill_registry`、`skill_versions`、`skill_runs`、`agent_runs`、`tool_calls`、`meta_agent_blueprints`、`meta_agent_components`、`meta_agent_runs`、`meta_agent_attempts`。
+- **外部发现**：GitHub Search API、MCP Registry；第三方 README/描述始终按不可信输入处理。
+- **安全边界**：当前自动生成 `runtime/meta-agent/components/*/manifest.json` 并挂载只读参考资料；可执行第三方代码、外部 MCP 凭证和宿主机安装必须审批并进入隔离运行环境。
+- **常见故障**：Agent 未被调用、组件搜索为空、审计输出不可解析、热替换耗尽、模型有输出但任务无结果、Trace 找不到链路。
 
 ### M07 CRM / Prospecting / Market
 
